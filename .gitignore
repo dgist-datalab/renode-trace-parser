@@ -1,0 +1,5 @@
+.venv/
+figure/
+*.txt
+*.py
+!trace-parse.py
