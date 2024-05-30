@@ -8,10 +8,11 @@ import pickle
 def to_hex(data, pos):
 	return f'0x{int(data):X}'
 
-pathName = 'log/ecg_small_20240524_160327.txt'
+logFileName = 'ecg_small_20240524_160327'
+pathName = 'log/%s.txt' % logFileName
 logFile = None
 
-dumpPathName = 'dump/dump0.pkl'
+dumpPathName = 'dump/dump_%s.pkl' % logFileName
 dumpReadMode = False
 dumpFile = None
 
