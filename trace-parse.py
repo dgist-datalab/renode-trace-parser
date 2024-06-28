@@ -5,10 +5,102 @@ import sys
 import os.path
 import pickle
 
+# /* Datastructures for memory trace */
+# typedef struct DLInstStat {
+#     uint32_t ldCnt;
+#     uint32_t lwCnt;
+#     uint32_t lwuCnt;
+#     uint32_t lhCnt;
+#     uint32_t lhuCnt;
+#     uint32_t lbCnt;
+#     uint32_t lbuCnt;
+
+#     uint32_t sdCnt;
+#     uint32_t swCnt;
+#     uint32_t shCnt;
+#     uint32_t sbCnt;
+
+#     uint32_t fldCnt;	
+#     uint32_t flwCnt;
+#     uint32_t flhCnt;
+#     uint32_t fsdCnt;
+#     uint32_t fswCnt;
+#     uint32_t fshCnt;
+
+#     // 8, 16, 32, 64
+#     uint32_t vleCnt[4];
+#     uint32_t vlseCnt[4];
+#     uint32_t vlxeiCnt[4];
+
+#     uint32_t vseCnt[4];
+#     uint32_t vsseCnt[4];
+#     uint32_t vsxeiCnt[4];
+
+#     uint32_t arithImmCnt;
+#     uint32_t arithCnt;
+
+#     // FP arith
+#     // operand precise: sigle, double, half
+#     uint32_t fmaddCnt[3];
+#     uint32_t fmsubCnt[3];
+#     uint32_t fnmaddCnt[3];
+#     uint32_t fnmsubCnt[3];
+#     uint32_t fparithCnt;
+
+#     // Vector arith
+#     uint32_t varithiCnt[3]; // vv, vx, vi
+#     uint32_t varithmCnt[2]; // vv, vx
+#     uint32_t varithfCnt[2]; // vv, vf
+
+#     uint64_t instCtr;
+#     uint32_t unknownCnt;
+# } DLInstStat;
+
+class DLPlotData:
+	def __init__(self):
+		# load/store
+		self.loadX = []
+		self.loadY = []
+		self.storeX = []
+		self.storeY = []
+		# FP load/store
+		self.fploadX = []
+		self.fploadY = []
+		self.fpstoreX = []
+		self.fpstoreY = []
+		# vector load/store
+		self.vloadX = []
+		self.vloadY = []
+		self.vstoreX = []
+		self.vstoreY = []
+		# arithmetic
+		self.arithX = []
+		self.arithY = []
+		# FP arithmetic
+		self.fparithX = []
+		self.fparithY = []
+		# vector arithmetic
+		self.varithX = []
+		self.varithY = []
+		self.dataAddrLow	= 0xffffffff
+		self.dataAddrHigh	= 0x00000000
+		self.stackAddrLow	= 0xffffffff
+		self.stackAddrHigh	= 0x00000000
+
+def dumpLoad(df, data):
+	loadedData = pickle.load(df)
+	df.close()
+
+	pass
+
+def dumpSave(df, data):
+	pass
+
 def to_hex(data, pos):
 	return f'0x{int(data):X}'
 
-logFileName = 'ecg_small_20240524_160327'
+#logFileName = 'ecg_small_20240524_160327'
+logFileName = 'ecg_small_20240624_142406'
 pathName = 'log/%s.txt' % logFileName
 logFile = None
 
