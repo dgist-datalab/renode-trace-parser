@@ -5,57 +5,6 @@ import sys
 import os.path
 import pickle
 
-# /* Datastructures for memory trace */
-# typedef struct DLInstStat {
-#     uint32_t ldCnt;
-#     uint32_t lwCnt;
-#     uint32_t lwuCnt;
-#     uint32_t lhCnt;
-#     uint32_t lhuCnt;
-#     uint32_t lbCnt;
-#     uint32_t lbuCnt;
-
-#     uint32_t sdCnt;
-#     uint32_t swCnt;
-#     uint32_t shCnt;
-#     uint32_t sbCnt;
-
-#     uint32_t fldCnt;	
-#     uint32_t flwCnt;
-#     uint32_t flhCnt;
-#     uint32_t fsdCnt;
-#     uint32_t fswCnt;
-#     uint32_t fshCnt;
-
-#     // 8, 16, 32, 64
-#     uint32_t vleCnt[4];
-#     uint32_t vlseCnt[4];
-#     uint32_t vlxeiCnt[4];
-
-#     uint32_t vseCnt[4];
-#     uint32_t vsseCnt[4];
-#     uint32_t vsxeiCnt[4];
-
-#     uint32_t arithImmCnt;
-#     uint32_t arithCnt;
-
-#     // FP arith
-#     // operand precise: sigle, double, half
-#     uint32_t fmaddCnt[3];
-#     uint32_t fmsubCnt[3];
-#     uint32_t fnmaddCnt[3];
-#     uint32_t fnmsubCnt[3];
-#     uint32_t fparithCnt;
-
-#     // Vector arith
-#     uint32_t varithiCnt[3]; // vv, vx, vi
-#     uint32_t varithmCnt[2]; // vv, vx
-#     uint32_t varithfCnt[2]; // vv, vf
-
-#     uint64_t instCtr;
-#     uint32_t unknownCnt;
-# } DLInstStat;
-
 class DLPlotData:
 	def __init__(self):
 		# load/store
@@ -82,19 +31,49 @@ class DLPlotData:
 		# vector arithmetic
 		self.varithX = []
 		self.varithY = []
+		# memory access boundary
 		self.dataAddrLow	= 0xffffffff
 		self.dataAddrHigh	= 0x00000000
 		self.stackAddrLow	= 0xffffffff
 		self.stackAddrHigh	= 0x00000000
+		# total instructions
+		self.totalInstCnt = 0
 
-def dumpLoad(df, data):
-	loadedData = pickle.load(df)
-	df.close()
+	def displayBoundary(self):
+		print("Data (low):   0x%x" % self.dataAddrLow)
+		print("Data (high):  0x%x" % self.dataAddrHigh)
+		print("Stack (low):  0x%x" % self.stackAddrLow)
+		print("Stack (high): 0x%x" % self.stackAddrHigh)
+	
+	# def loadDump(self, dfile):
+	# 	if dfile is None:
+	# 		print('E: file %s is not opened' % dumpPathName)
+	# 		return False
+	# 	self = pickle.load(dfile)
+	# 	dfile.close()
 
-	pass
+	def saveDump(self, dfile):
+		pickle.dump(self, dfile)
+		dfile.close()
+		
 
-def dumpSave(df, data):
-	pass
+# def dumpLoad(dfile, data):
+# 	if dfile is None:
+# 		print('E: file %s is not opened' % dumpPathName)
+# 		return False
+# 	loadedData = pickle.load(dfile)
+# 	dfile.close()
+# 	data = loadedData['plot_data']
+# 	data.displayBoundary()
+# 	if data is None:
+# 		print('E: plot data is not available')
+# 		return False
+# 	else:
+# 		return True
+
+# def dumpSave(dfile, data):
+# 	dumpData = { 'plot_data': data }
+# 	pickle.dump(dumpData, dfile)
 
 def to_hex(data, pos):
 	return f'0x{int(data):X}'
@@ -123,9 +102,22 @@ else:
 	print('E: file %s does not exist' % pathName)
 	exit(1)
 
+## Initialize plot ==================================================
 fig, ax = plt.subplots()
+plotColor = {
+	'load': '#1772c4',		# 파란색
+	'store': '#cd3939',		# 빨간색
+	'fpload': '#d0eb06',	# 연두색
+	'fpstore': '#ffbd2e',	# 주황색
+	'vload': '#009aa6',		# 청록색
+	'vstore': '#ff97cf',	# 분홍색
 
-addrBase = 0x34000000
+	'arith': '#1772c4',		# 파란색
+	'fparith': '#cd3939',	# 빨간색
+	'varith': '#d0eb06'		# 연두색
+}
+
+dmemAddrBase = 0x34000000
 # plt.ylim(0x34000000, 0x35000000)
 # plt.ylim(0, 0x1100000)
 
@@ -142,151 +134,174 @@ ax.yaxis.set_major_formatter(ticker.FuncFormatter(to_hex))
 # x축 눈금 라벨을 세로로 회전
 plt.xticks(rotation=90)
 
-# sb(=0023)/319929: pc=3203298a, addr=3406b292
-ctr = 0
-loadX  = []
-loadY  = []
-storeX = []
-storeY = []
-fploadX  = []
-fploadY  = []
-fpstoreX = []
-fpstoreY = []
+# class:
+# (1) load/store
+# [11581] lw(=2003)/742: pc=3201ae48, addr=340327f4
+# [11589] sw(=2023)/805: pc=3201ae84, addr=34fffbd0
 
-addrDataLow  = 0xffffffff
-addrDataHigh = 0
-addrStackLow = 0xffffffff
-addrStackHigh = 0
+# (2) FP load/store
+# [2992325] flw(=2007)/1: pc=32009404, addr=34031f70
+# [2992358] fsw(=2027)/1: pc=32009438, addr=34064dc0
 
+# (3) vector load/store
+# [3122315] vle32(=0007)/147: pc=32020c44, addr=34ffc900
+# [3122318] vse32(=0027)/160: pc=32020c50, addr=34ffc8f0
+
+# (4) arith
+# [103] arith(=0033)/3: pc=320329f8
+
+# (5) arith imm
+# [93] arithimm(=0013)/37: pc=320000cc
+
+# (6) FP arith
+# [2992339] fparith(=20000053)/3: pc=32009460
+
+# (7) fm{add, sub}, fnm{add, sub}
+# [3433716] fmadd.s(=0043)/3: pc=3200990c
+
+# (8) varithi{vv, vx, vi}, varithm{vv, vx}, varith{vv, vf}
+# [4931914] varithi.vi(=3057)/43: pc=32021510
+
+## Initialize plot data =============================================
+# ctr = 0
+plotData = DLPlotData()
 epilogue = ''
 
 if dumpReadMode:
-	loadedData = pickle.load(dumpFile)
-	dumpFile.close()
-	loadX = loadedData['loadX']
-	loadY = loadedData['loadY']
-	storeX = loadedData['storeX']
-	storeY = loadedData['storeY']
-	fploadX = loadedData['fploadX']
-	fploadY = loadedData['fploadY']
-	fpstoreX = loadedData['fpstoreX']
-	fpstoreY = loadedData['fpstoreY']
-	addrDataLow = loadedData['addrDataLow']
-	addrDataHigh = loadedData['addrDataHigh']
-	addrStackLow = loadedData['addrStackLow']
-	addrStackHigh = loadedData['addrStackHigh']
-	totalInstrCount = loadedData['totalInstrCount']
-	print('Dumped data is fully loaded!')
+	plotData = pickle.load(dumpFile)
+	plotData.displayBoundary()
+	if plotData.totalInstCnt == 0:
+		print('E: failed to load plot data')
+		exit(1)
+	else:
+		print('Plot data is loaded from %s successfully' % dumpPathName)
 
 else:
-	for line in logFile:
-		#if ctr > 100:
-		#	break
+	# 패턴 매칭: 숫자 | 16진수 숫자 | pc=숫자 | addr=숫자
+	pattern = re.compile(r'\b\d+\b|\b[0-9a-fA-F]+\b|\bpc=[0-9a-fA-F]+\b|\baddr=[0-9a-fA-F]+\b')
 
+	for line in logFile:
+		# 로그 파일에서 ##로 시작하는 행이 나오면 반복 종료
 		epilogue = re.match(r'^##', line)
 		if epilogue is not None:
 			epilogue = line
 			break
-		instCtr = re.search(r'^\[[0-9]+\]', line)
-		opc = re.search(r'[a-z]{2,}', line)
-		numbers = re.findall(r'([=/][0-9a-f]+)', line)
-		#print(line, end='')
-		#print('op=%s' % opc.group())
-		#print('opcode=%s, count=%s, addr=%s' % (numbers[0][1:], numbers[1][1:], numbers[3][1:]))
-		ctrStr    = instCtr.group()
-		opStr     = opc.group()
-		opcodeStr = numbers[0][1:]
-		countStr  = numbers[1][1:]
-		addrStr   = numbers[3][1:]
+		
+		matches = pattern.findall(line)
+		matchLen = len(matches)
+		if (matchLen == 4 or matchLen == 5): # arithmetic(=4) or load/store(=5)
+			## Tokenize
+			instCtr = int(matches[0])
+			#opc = int(matches[1], 16) # opcode
+			opcCnt = int(matches[2])
+			pc = int(matches[3].split(sep='=')[1].strip(), 16)
+			opStr = (line.split()[1]).split(sep='(')[0]
+			addr = 0
 
-		instCtrInt = int(ctrStr[1:-1])
+			if matchLen == 5: # load/store
+				addr = int(matches[4].split(sep='=')[1].strip(), 16)
+				#sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x, addr=%x' % (instCtr, opStr, opc, opcCnt, pc, addr))
+				sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x, addr=%x' % (instCtr, opStr, opcCnt, pc, addr))
+			elif matchLen == 4: # arithmetic
+				#sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x' % (instCtr, opStr, opc, opcCnt, pc))
+				sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x' % (instCtr, opStr, opcCnt, pc))
+			
+			## Update plot data
+			if matchLen == 4: # arithmetic
+				if 'f' in opStr: # FP arith
+					plotData.fparithX.append(instCtr)
+					plotData.fparithX.append(pc)
+				elif 'v' in opStr: # vector arith
+					plotData.varithX.append(instCtr)
+					plotData.varithX.append(pc)
+				else: # integer arith
+					plotData.arithX.append(instCtr)
+					plotData.arithX.append(pc)
+				pass
+			else: # load/store
+				## Update segment boundary
+				if addr > (dmemAddrBase | 0x00f00000): # stack
+					if plotData.stackAddrHigh < addr:
+						plotData.stackAddrHigh = addr
+					if plotData.stackAddrLow > addr:
+						plotData.stackAddrLow = addr
+				else: # data
+					if plotData.dataAddrHigh < addr:
+						plotData.dataAddrHigh = addr
+					if plotData.dataAddrLow > addr:
+						plotData.dataAddrLow = addr
+				
+				## Append graph points
+				if 'f' in opStr: # FP load/store
+					if 'l' in opStr: # load
+						plotData.fploadX.append(instCtr)
+						plotData.fploadY.append(addr)
+					else: # store
+						plotData.fpstoreX.append(instCtr)
+						plotData.fpstoreY.append(addr)
+						pass
+				elif 'v' in opStr: # vector load/store
+					if 'l' in opStr: # load
+						plotData.vloadX.append(instCtr)
+						plotData.vloadY.append(addr)
+					else: # store
+						plotData.vstoreX.append(instCtr)
+						plotData.vstoreY.append(addr)
+				else: # integer load/store
+					if 'l' in opStr: # load
+						plotData.loadX.append(instCtr)
+						plotData.loadY.append(addr)
+					elif 's' in opStr: # store
+						plotData.storeX.append(instCtr)
+						plotData.storeY.append(addr)
+					else:
+						print('%s: illegal instruction' % line)
+						break
 
-		if opStr != 'unknown':
-			#print('[%d] op=%s: opcode=%s, count=%s, addr=%s' % (ctr, opc.group(), opcodeStr, countStr, addrStr))
-			#print('[%d] op=%s: opcode=%s, count=%s, addr=%x' % (ctr, opc.group(), opcodeStr, countStr, int(addrStr, 16) - 0x34000000))
-			addrInt = int(addrStr, 16)
-			# addrPlot = int(addrStr, 16) - addrBase
-			addrPlot = int(addrStr, 16)
-			if addrInt >= 0x34f00000: # stack
-				if addrStackHigh < addrInt:
-					addrStackHigh = addrInt
-				if addrStackLow > addrInt:
-					addrStackLow = addrInt
-			else: # data
-				if addrDataHigh < addrInt:
-					addrDataHigh = addrInt
-				if addrDataLow > addrInt:
-					addrDataLow = addrInt
-			sys.stdout.write('\r' + '[%d] op=%s: opcode=%s, count=%s, addr=%x' % (instCtrInt, opc.group(), opcodeStr, countStr, addrInt))
-			#print('[%d] op=%s: opcode=%s, count=%s, addr=%x' % (instCtrInt, opc.group(), opcodeStr, countStr, addrInt))
+			# sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x, addr=%x' 
+			# 	% (instCtr, opStr, opc, opcCnt, pc, addr))
+		else:
+			print('%s: unknown instruction, matchLen=%d' % (line, matchLen) )
 
-			if 'f' in opStr: # FP load/store
-				if 'l' in opStr: # load
-					fploadX.append(instCtrInt)
-					fploadY.append(addrPlot)
-				elif 's' in opStr: #store
-					fpstoreX.append(instCtrInt)
-					fpstoreY.append(addrPlot)
-				else:
-					print("E: Illegal instruction")
-					break
-			else:
-				if 'l' in opStr: # load
-					loadX.append(instCtrInt)
-					loadY.append(addrPlot)
-				elif 's' in opStr: # store
-					storeX.append(instCtrInt)
-					storeY.append(addrPlot)
-				else:
-					print("E: Illegal instruction")
-					break
-			#ctr += 1
-
-	totalInstrCountStr = ''
-	totalInstrCount = 0
 	print('\n')
 	print(epilogue, end='')
 	for line in logFile:
 		print(line, end='')
 		if "Total instructions" in line:
-			totalInstrCountStr = line.split(sep=':')[1].strip()
-			totalInstrCount = int(totalInstrCountStr)
+			plotData.totalInstCnt = int(line.split(sep=':')[1].strip())
 
 	logFile.close()
 	
 print()
 print("## Data ##")
-print("address (low) : %x" % addrDataLow)
-print("address (high): %x" % addrDataHigh)
-print("--> %d KB" % ((addrDataHigh - addrDataLow) / 1024))
+print("address (low) : %x" % plotData.dataAddrLow)
+print("address (high): %x" % plotData.dataAddrHigh)
+print("--> %d KB" % ((plotData.dataAddrHigh - plotData.dataAddrLow) / 1024))
 print()
 print("## Stack ##")
-print("address (low) : %x" % addrStackLow)
-print("address (high): %x" % addrStackHigh)
-print("--> %d KB" % ((addrStackHigh - addrStackLow) / 1024))
+print("address (low) : %x" % plotData.stackAddrLow)
+print("address (high): %x" % plotData.stackAddrHigh)
+print("--> %d KB" % ((plotData.stackAddrHigh - plotData.stackAddrLow) / 1024))
 
-# 덤프 파일 저장
+# 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장
 if not dumpReadMode:
 	dumpFile = open(dumpPathName, 'wb')
-	dumpData = { 'loadX': loadX, 'loadY': loadY, 'storeX': storeX, 'storeY': storeY, 
-		'fploadX': fploadX, 'fploadY': fploadY, 'fpstoreX': fpstoreX, 'fpstoreY': fpstoreY,
-		'addrDataLow': addrDataLow, 'addrDataHigh': addrDataHigh, 
-		'addrStackHigh': addrStackHigh, 'addrStackLow': addrStackLow, 
-		'totalInstrCount': totalInstrCount
-	}
-	pickle.dump(dumpData, dumpFile)
-	dumpFile.close()
-	print('%s is created' % dumpPathName)
+	plotData.saveDump(dumpFile)
+	#dumpSave(dumpFile, plotData)
+	#dumpFile.close()
+	print('Plot data saved in %s' % dumpPathName)
 
-# plt.xlim(totalInstrCount + 1000)
-plt.scatter(loadX, loadY, color='blue', s=1)# , label='load')
-plt.scatter(storeX, storeY, color='red', s=1)#, label='store')
-plt.scatter(fploadX, fploadY, color='green', s=1)#, label='FP load')
-plt.scatter(fpstoreX, fpstoreY, color='yellow', s=1)#, label='FP store')
+# plt.xlim(plotData.totalInstCnt + 1000)
+plt.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)# , label='load')
+plt.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)#, label='store')
+plt.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)#, label='FP load')
+plt.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)#, label='FP store')
+plt.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+plt.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
 
 # 프로그램 시작과 끝 지점에 세로선 출력
 plt.axvline(x=0, color='#aaaaaa', linestyle='--', linewidth=1)
-plt.axvline(x=totalInstrCount, color='#aaaaaa', linestyle='--', linewidth=1)
+plt.axvline(x=plotData.totalInstCnt, color='#aaaaaa', linestyle='--', linewidth=1)
 #plt.legend()
 
 plt.show()
