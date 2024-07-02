@@ -4,6 +4,7 @@ import matplotlib.ticker as ticker
 import sys
 import os.path
 import pickle
+import argparse
 
 class DLPlotData:
 	def __init__(self):
@@ -56,14 +57,49 @@ class DLPlotData:
 	def saveDump(self, dfile):
 		pickle.dump(self, dfile)
 		dfile.close()
-		
-
-def printProfile(plotData):
-	print()
 
 def to_hex(data, pos):
 	return f'0x{int(data):X}'
 
+def initPlotFormat(ax, pltype='ldst'):
+	multipleLocatorX = 500000
+	multipleLocatorY = 0x200000
+	if pltype != 'ldst':
+		multipleLocatorX = 500000
+		multipleLocatorY = 0x8000
+
+	ax.grid(False)
+	ax.set_xlabel('time')
+	ax.set_ylabel('address')
+	# 눈금 간격 설정
+	ax.xaxis.set_major_locator(ticker.MultipleLocator(multipleLocatorX))
+	ax.yaxis.set_major_locator(ticker.MultipleLocator(multipleLocatorY))
+	# 눈금 형식 설정
+	ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
+	ax.yaxis.set_major_formatter(ticker.FuncFormatter(to_hex))
+	# x축 눈금 라벨을 세로로 회전
+	ax.tick_params(axis='x', rotation=90)
+	# 프로그램 시작과 끝 지점에 세로선 출력
+	ax.axvline(x=0, color='#aaaaaa', linestyle='--', linewidth=1)
+	ax.axvline(x=plotData.totalInstCnt, color='#aaaaaa', linestyle='--', linewidth=1)
+
+## Initialize argparse ==============================================
+parser = argparse.ArgumentParser()
+
+parser.add_argument('--all', action='store_true', help='Enable all options')
+parser.add_argument('--plot-ldst', action='store_true', help='Enable plotting load/store instruction traces')
+parser.add_argument('--plot-arith', action='store_true', help='Enable plotting arithmetic instruction traces')
+parser.add_argument('--separated', action='store_true', help='All subplots are rendered in separate windows')
+parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
+
+args = parser.parse_args()
+
+# 아무 인자 없을 시 --plot-ldst, --plot-arith는 참으로 설정
+if len(sys.argv) < 2:
+	args.plot_ldst = True
+	args.plot_arith = True
+
+## Open the trace log or dump file ==================================
 #logFileName = 'ecg_small_20240524_160327'
 logFileName = 'ecg_small_20240624_142406'
 pathName = 'log/%s.txt' % logFileName
@@ -77,9 +113,6 @@ if os.path.isfile(dumpPathName):
 	print('Dump file %s is detected' % dumpPathName)
 	dumpFile = open(dumpPathName, 'rb')
 	dumpReadMode = True
-
-if len(sys.argv) == 2:
-	pathName = sys.argv[1]
 
 if os.path.isfile(pathName):
 	logFile = open(pathName, 'r', encoding='utf-8')
@@ -232,7 +265,7 @@ else:
 if dumpReadMode:
 	print()
 	print(plotData.epilogue)
-	
+
 print()
 print("## Data ##")
 print("address (low) : %x" % plotData.dataAddrLow)
@@ -254,8 +287,6 @@ if not dumpReadMode:
 
 ## 그래프 출력 ========================================================
 # Initialize plot
-# 서브 플롯 2x2개 생성
-fig1, axs1 = plt.subplots(2, 2, num='Memory Access Trace')
 plotColor = {
 	'load': '#1772c4',		# 파란색
 	'store': '#cd3939',		# 빨간색
@@ -269,69 +300,61 @@ plotColor = {
 	'varith': '#d0eb06'		# 연두색
 }
 
-# plt.ylim(0x34000000, 0x35000000)
-# plt.ylim(0, 0x1100000)
-# plt.xlim(plotData.totalInstCnt + 1000)
+if args.plot_ldst or args.all:
+	if args.separated:
+		## 4개 창 생성 및 개별 그래프 출력
+		fig1, axs1 = plt.subplots(num='Memory access trace in ECG model')
+		initPlotFormat(axs1)
+		axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+		axs1.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+		axs1.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+		axs1.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+		axs1.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+		axs1.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+		axs1.set_title('Memory access trace in ECG model (all)')
 
-# 그래프 서식 일괄 적용
-for ax in axs1.flat:
-	ax.grid(False)
-	ax.set_xlabel('time')
-	ax.set_ylabel('address')
-	# 눈금 간격 설정
-	ax.xaxis.set_major_locator(ticker.MultipleLocator(500000))
-	ax.yaxis.set_major_locator(ticker.MultipleLocator(0x200000))
-	# 눈금 형식 설정
-	ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
-	ax.yaxis.set_major_formatter(ticker.FuncFormatter(to_hex))
-	# x축 눈금 라벨을 세로로 회전
-	ax.tick_params(axis='x', rotation=90)
-	# 프로그램 시작과 끝 지점에 세로선 출력
-	ax.axvline(x=0, color='#aaaaaa', linestyle='--', linewidth=1)
-	ax.axvline(x=plotData.totalInstCnt, color='#aaaaaa', linestyle='--', linewidth=1)
+		fig2, axs2 = plt.subplots(num='Memory access trace in ECG model')
 
-# 개별 그래프 출력
-axs1[0, 0].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)# , label='load')
-axs1[0, 0].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)#, label='store')
-axs1[0, 0].scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)#, label='FP load')
-axs1[0, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)#, label='FP store')
-axs1[0, 0].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
-axs1[0, 0].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
-axs1[0, 0].set_title('Memory access trace in ECG model (all)')
+	else:
+		## 1개 창, 서브 플롯 2x2개 생성
+		fig1, axs1 = plt.subplots(2, 2, num='Memory Access Trace')
 
-axs1[0, 1].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
-axs1[0, 1].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
-axs1[0, 1].set_title('Integer load/store only')
+		# plt.ylim(0x34000000, 0x35000000)
+		# plt.ylim(0, 0x1100000)
+		# plt.xlim(plotData.totalInstCnt + 1000)
 
-axs1[1, 0].scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
-axs1[1, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
-axs1[1, 0].set_title('FP load/store only')
+		# 그래프 서식 일괄 적용
+		for ax in axs1.flat:
+			initPlotFormat(ax)
+		
+		# 개별 그래프 출력
+		axs1[0, 0].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+		axs1[0, 0].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+		axs1[0, 0].scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+		axs1[0, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+		axs1[0, 0].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+		axs1[0, 0].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+		axs1[0, 0].set_title('Memory access trace in ECG model (all)')
 
-axs1[1, 1].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
-axs1[1, 1].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
-axs1[1, 1].set_title('Vector load/store only')
+		axs1[0, 1].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+		axs1[0, 1].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+		axs1[0, 1].set_title('Integer load/store only')
 
-plotArithEnabled = False
-plotSaveEnabled = False
+		axs1[1, 0].scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+		axs1[1, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+		axs1[1, 0].set_title('FP load/store only')
+
+		axs1[1, 1].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+		axs1[1, 1].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+		axs1[1, 1].set_title('Vector load/store only')
 
 ## 새로운 창: 산술 연산
-if plotArithEnabled:
+if args.plot_arith or args.all:
+	# 서브 플롯 2x2개 생성
 	fig2, axs2 = plt.subplots(2, 2, num='Arithmetic Operations')
+	# 그래프 서식 일괄 적용
 	for ax in axs2.flat:
-		ax.grid(False)
-		ax.set_xlabel('time')
-		ax.set_ylabel('address')
-		# 눈금 간격 설정
-		ax.xaxis.set_major_locator(ticker.MultipleLocator(500000))
-		ax.yaxis.set_major_locator(ticker.MultipleLocator(0x200000))
-		# 눈금 형식 설정
-		ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
-		ax.yaxis.set_major_formatter(ticker.FuncFormatter(to_hex))
-		# x축 눈금 라벨을 세로로 회전
-		ax.tick_params(axis='x', rotation=90)
-		# 프로그램 시작과 끝 지점에 세로선 출력
-		ax.axvline(x=0, color='#aaaaaa', linestyle='--', linewidth=1)
-		ax.axvline(x=plotData.totalInstCnt, color='#aaaaaa', linestyle='--', linewidth=1)
+		initPlotFormat(ax, pltype='arith')
 
 	# 개별 그래프 출력
 	axs2[0, 0].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
@@ -352,8 +375,8 @@ if plotArithEnabled:
 #fig1.tight_layout()
 #fig2.tight_layout()
 
-# 서브 플롯을 파일로 출력
-if plotSaveEnabled:
+# 서브 플롯들을 파일로 저장 ====================================================
+if args.save_figure or args.all:
 	figFilePrefix = 'figure/'
 	figFileSuffix = '.png'
 	for i, ax in enumerate(axs1.flat):
