@@ -69,7 +69,7 @@ def initPlotFormat(ax, pltype='ldst'):
 		multipleLocatorY = 0x8000
 
 	ax.grid(False)
-	ax.set_xlabel('time')
+	ax.set_xlabel('# instruction')
 	ax.set_ylabel('address')
 	# 눈금 간격 설정
 	ax.xaxis.set_major_locator(ticker.MultipleLocator(multipleLocatorX))
@@ -89,19 +89,22 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--all', action='store_true', help='Enable all options')
 parser.add_argument('--plot-ldst', action='store_true', help='Enable plotting load/store instruction traces')
 parser.add_argument('--plot-arith', action='store_true', help='Enable plotting arithmetic instruction traces')
-parser.add_argument('--separated', action='store_true', help='All subplots are rendered in separate windows')
+parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
 parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 
 args = parser.parse_args()
 
 # 아무 인자 없을 시 --plot-ldst, --plot-arith는 참으로 설정
-if len(sys.argv) < 2:
+#if len(sys.argv) < 2:
+if not args.plot_ldst and not args.plot_arith:
 	args.plot_ldst = True
 	args.plot_arith = True
 
 ## Open the trace log or dump file ==================================
-#logFileName = 'ecg_small_20240524_160327'
 logFileName = 'ecg_small_20240624_142406'
+#logFileName = 'mobile_net_v1_20240703_142550'
+#logFileName = 'mnist_20240703_142344'
+
 pathName = 'log/%s.txt' % logFileName
 logFile = None
 
@@ -301,9 +304,10 @@ plotColor = {
 }
 
 if args.plot_ldst or args.all:
-	if args.separated:
+	if args.separate:
 		## 4개 창 생성 및 개별 그래프 출력
-		fig1, axs1 = plt.subplots(num='Memory access trace in ECG model')
+		fig1, axs1 = plt.subplots(num=1)
+		fig1.canvas.manager.set_window_title('Memory access trace')
 		initPlotFormat(axs1)
 		axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
 		axs1.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
@@ -311,9 +315,28 @@ if args.plot_ldst or args.all:
 		axs1.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
 		axs1.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
 		axs1.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
-		axs1.set_title('Memory access trace in ECG model (all)')
+		axs1.set_title('Memory access trace (all)')
 
-		fig2, axs2 = plt.subplots(num='Memory access trace in ECG model')
+		fig2, axs2 = plt.subplots(num=2)
+		fig2.canvas.manager.set_window_title('Memory access trace')
+		initPlotFormat(axs2)
+		axs2.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+		axs2.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+		axs2.set_title('Memory access trace (integer load/store)')
+
+		fig3, axs3 = plt.subplots(num=3)
+		fig3.canvas.manager.set_window_title('Memory access trace')
+		initPlotFormat(axs3)
+		axs3.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+		axs3.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+		axs3.set_title('Memory access trace (FP load/store)')
+
+		fig4, axs4 = plt.subplots(num=4)
+		fig4.canvas.manager.set_window_title('Memory access trace')
+		initPlotFormat(axs4)
+		axs4.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+		axs4.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+		axs4.set_title('Memory access trace (vector load/store)')
 
 	else:
 		## 1개 창, 서브 플롯 2x2개 생성
@@ -334,7 +357,7 @@ if args.plot_ldst or args.all:
 		axs1[0, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
 		axs1[0, 0].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
 		axs1[0, 0].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
-		axs1[0, 0].set_title('Memory access trace in ECG model (all)')
+		axs1[0, 0].set_title('Memory access trace (all)')
 
 		axs1[0, 1].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
 		axs1[0, 1].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
@@ -348,46 +371,74 @@ if args.plot_ldst or args.all:
 		axs1[1, 1].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
 		axs1[1, 1].set_title('Vector load/store only')
 
-## 새로운 창: 산술 연산
+
+## 새로운 창: 산술 연산 명령어
 if args.plot_arith or args.all:
-	# 서브 플롯 2x2개 생성
-	fig2, axs2 = plt.subplots(2, 2, num='Arithmetic Operations')
-	# 그래프 서식 일괄 적용
-	for ax in axs2.flat:
-		initPlotFormat(ax, pltype='arith')
+	if args.separate:
+		fig1, axs1 = plt.subplots(num=5)
+		initPlotFormat(axs1, pltype='arith')
+		fig1.canvas.manager.set_window_title('Arithmetic operations trace')
+		axs1.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
+		axs1.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
+		axs1.scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
+		axs1.set_title('Arithmetic operations trace (all)')
 
-	# 개별 그래프 출력
-	axs2[0, 0].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
-	axs2[0, 0].scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
-	axs2[0, 0].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
-	axs2[0, 0].set_title('Arithmetic operations trace in ECG model (all)')
+		fig2, axs2 = plt.subplots(num=6)
+		initPlotFormat(axs2, pltype='arith')
+		fig2.canvas.manager.set_window_title('Arithmetic operations trace')
+		axs2.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
+		axs2.set_title('Integer arithmetic only')
 
-	axs2[0, 1].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
-	axs2[0, 1].set_title('Integer arithmetic only')
+		fig3, axs3 = plt.subplots(num=7)
+		initPlotFormat(axs3, pltype='arith')
+		fig3.canvas.manager.set_window_title('Arithmetic operations trace')
+		axs3.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
+		axs3.set_title('FP arithmetic only')
 
-	axs2[1, 0].scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
-	axs2[1, 0].set_title('FP arithmetic only')
+		fig4, axs4 = plt.subplots(num=8)
+		initPlotFormat(axs4, pltype='arith')
+		fig4.canvas.manager.set_window_title('Arithmetic operations trace')
+		axs4.scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
+		axs4.set_title('Vector arithmetic only')
+	else:
+		# 서브 플롯 2x2개 생성
+		fig2, axs2 = plt.subplots(2, 2, num='Arithmetic Operations')
+		# 그래프 서식 일괄 적용
+		for ax in axs2.flat:
+			initPlotFormat(ax, pltype='arith')
 
-	axs2[1, 1].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
-	axs2[1, 1].set_title('Vector arithmetic only')
+		# 개별 그래프 출력
+		axs2[0, 0].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
+		axs2[0, 0].scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
+		axs2[0, 0].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
+		axs2[0, 0].set_title('Arithmetic operations trace (all)')
+
+		axs2[0, 1].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
+		axs2[0, 1].set_title('Integer arithmetic only')
+
+		axs2[1, 0].scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
+		axs2[1, 0].set_title('FP arithmetic only')
+
+		axs2[1, 1].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
+		axs2[1, 1].set_title('Vector arithmetic only')
 
 # 전체 레이아웃 조정
 #fig1.tight_layout()
 #fig2.tight_layout()
 
 # 서브 플롯들을 파일로 저장 ====================================================
-if args.save_figure or args.all:
-	figFilePrefix = 'figure/'
-	figFileSuffix = '.png'
-	for i, ax in enumerate(axs1.flat):
-		figFileName = figFilePrefix + logFileName + '_ldst_' + str(i) + figFileSuffix
-		extent = ax.get_window_extent().transformed(fig1.dpi_scale_trans.inverted())
-		fig1.savefig(figFileName, bbox_inches=extent, dpi=100)
+# if args.save_figure or args.all:
+# 	figFilePrefix = 'figure/'
+# 	figFileSuffix = '.png'
+# 	for i, ax in enumerate(axs1.flat):
+# 		figFileName = figFilePrefix + logFileName + '_ldst_' + str(i) + figFileSuffix
+# 		extent = ax.get_window_extent().transformed(fig1.dpi_scale_trans.inverted())
+# 		fig1.savefig(figFileName, bbox_inches=extent, dpi=100)
 
-	for i, ax in enumerate(axs2.flat):
-		figFileName = figFilePrefix + logFileName + '_arith_' + str(i) + figFileSuffix
-		extent = ax.get_window_extent().transformed(fig2.dpi_scale_trans.inverted())
-		fig2.savefig(figFileName, bbox_inches=extent, dpi=100)
+# 	for i, ax in enumerate(axs2.flat):
+# 		figFileName = figFilePrefix + logFileName + '_arith_' + str(i) + figFileSuffix
+# 		extent = ax.get_window_extent().transformed(fig2.dpi_scale_trans.inverted())
+# 		fig2.savefig(figFileName, bbox_inches=extent, dpi=100)
 
 #plt.tight_layout()
 plt.show()
