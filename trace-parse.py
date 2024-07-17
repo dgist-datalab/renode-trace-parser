@@ -101,7 +101,10 @@ if not args.plot_ldst and not args.plot_arith:
 	args.plot_arith = True
 
 ## Open the trace log or dump file ==================================
-logFileName = 'ecg_small_20240624_142406'
+#logFileName = 'ecg_small_20240624_142406'		# stack=200K (default)
+#logFileName = 'ecg_small_20240705_140632'		# stack=100K
+logFileName = 'ecg_small_20240705_142117'		# stack=10M
+# logFileName = 'ecg_small_20240705_143322'		# another stack=200K
 #logFileName = 'mobile_net_v1_20240703_142550'
 #logFileName = 'mnist_20240703_142344'
 
