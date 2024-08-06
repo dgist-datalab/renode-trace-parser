@@ -1,6 +1,7 @@
 import re
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
 import sys
 import os.path
 import pickle
@@ -41,6 +42,22 @@ class DLPlotData:
 		self.totalInstCnt = 0
 		self.epilogue = ''
 
+		# cumulative data
+		self.memCDF = []
+		self.loadCDF = []
+		self.storeCDF = []
+		self.arithCDF = []
+
+		self.fploadCDF = []
+		self.fpstoreCDF = []
+		self.fparithCDF = []
+
+		self.vloadCDF = []
+		self.vstoreCDF = []
+		self.varithCDF = []
+
+		self.instCtr = []
+
 	def displayBoundary(self):
 		print("Data (low):   0x%x" % self.dataAddrLow)
 		print("Data (high):  0x%x" % self.dataAddrHigh)
@@ -60,6 +77,9 @@ class DLPlotData:
 
 def to_hex(data, pos):
 	return f'0x{int(data):X}'
+
+def to_sampled(data, pos):
+	return f'{int(data) * sampleInterval}'
 
 def initPlotFormat(ax, pltype='ldst'):
 	multipleLocatorX = 500000
@@ -83,6 +103,154 @@ def initPlotFormat(ax, pltype='ldst'):
 	ax.axvline(x=0, color='#aaaaaa', linestyle='--', linewidth=1)
 	ax.axvline(x=plotData.totalInstCnt, color='#aaaaaa', linestyle='--', linewidth=1)
 
+def plotLdst():
+	## 4개 창 생성 및 개별 그래프 출력
+	fig1, axs1 = plt.subplots(num=1)
+	fig1.canvas.manager.set_window_title('Memory access trace')
+	initPlotFormat(axs1)
+	axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+	axs1.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+	axs1.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+	axs1.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+	axs1.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+	axs1.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+	axs1.set_title('Memory access trace (all)')
+
+	fig2, axs2 = plt.subplots(num=2)
+	fig2.canvas.manager.set_window_title('Memory access trace')
+	initPlotFormat(axs2)
+	axs2.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+	axs2.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+	axs2.set_title('Memory access trace (integer load/store)')
+
+	fig3, axs3 = plt.subplots(num=3)
+	fig3.canvas.manager.set_window_title('Memory access trace')
+	initPlotFormat(axs3)
+	axs3.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+	axs3.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+	axs3.set_title('Memory access trace (FP load/store)')
+
+	fig4, axs4 = plt.subplots(num=4)
+	fig4.canvas.manager.set_window_title('Memory access trace')
+	initPlotFormat(axs4)
+	axs4.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+	axs4.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+	axs4.set_title('Memory access trace (vector load/store)')
+
+def plotLdstSep():
+	## 1개 창, 서브 플롯 2x2개 생성
+	fig1, axs1 = plt.subplots(2, 2, num='Memory Access Trace')
+
+	# plt.ylim(0x34000000, 0x35000000)
+	# plt.ylim(0, 0x1100000)
+	# plt.xlim(plotData.totalInstCnt + 1000)
+
+	# 그래프 서식 일괄 적용
+	for ax in axs1.flat:
+		initPlotFormat(ax)
+	
+	# 개별 그래프 출력
+	axs1[0, 0].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+	axs1[0, 0].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+	axs1[0, 0].scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+	axs1[0, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+	axs1[0, 0].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+	axs1[0, 0].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+	axs1[0, 0].set_title('Memory access trace (all)')
+
+	axs1[0, 1].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+	axs1[0, 1].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+	axs1[0, 1].set_title('Integer load/store only')
+
+	axs1[1, 0].scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+	axs1[1, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+	axs1[1, 0].set_title('FP load/store only')
+
+	axs1[1, 1].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+	axs1[1, 1].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+	axs1[1, 1].set_title('Vector load/store only')
+
+def plotArith():
+	# 서브 플롯 2x2개 생성
+	fig2, axs2 = plt.subplots(2, 2, num='Arithmetic Operations')
+	# 그래프 서식 일괄 적용
+	for ax in axs2.flat:
+		initPlotFormat(ax, pltype='arith')
+
+	# 개별 그래프 출력
+	axs2[0, 0].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
+	axs2[0, 0].scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
+	axs2[0, 0].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
+	axs2[0, 0].set_title('Arithmetic operations trace (all)')
+
+	axs2[0, 1].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
+	axs2[0, 1].set_title('Integer arithmetic only')
+
+	axs2[1, 0].scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
+	axs2[1, 0].set_title('FP arithmetic only')
+
+	axs2[1, 1].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
+	axs2[1, 1].set_title('Vector arithmetic only')
+
+def plotArithSep():
+	fig1, axs1 = plt.subplots(num=5)
+	initPlotFormat(axs1, pltype='arith')
+	fig1.canvas.manager.set_window_title('Arithmetic operations trace')
+	axs1.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
+	axs1.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
+	axs1.scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
+	axs1.set_title('Arithmetic operations trace (all)')
+
+	fig2, axs2 = plt.subplots(num=6)
+	initPlotFormat(axs2, pltype='arith')
+	fig2.canvas.manager.set_window_title('Arithmetic operations trace')
+	axs2.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
+	axs2.set_title('Integer arithmetic only')
+
+	fig3, axs3 = plt.subplots(num=7)
+	initPlotFormat(axs3, pltype='arith')
+	fig3.canvas.manager.set_window_title('Arithmetic operations trace')
+	axs3.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
+	axs3.set_title('FP arithmetic only')
+
+	fig4, axs4 = plt.subplots(num=8)
+	initPlotFormat(axs4, pltype='arith')
+	fig4.canvas.manager.set_window_title('Arithmetic operations trace')
+	axs4.scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
+	axs4.set_title('Vector arithmetic only')
+
+sampleInterval = 1000
+def plotCumul():
+	fig1, axs1 = plt.subplots(num=1)
+	x = np.arange(len(plotData.loadCDF[::sampleInterval]))
+
+	sampledLoadCDF = plotData.loadCDF[::sampleInterval]
+	sampledStoreCDF = plotData.storeCDF[::sampleInterval]
+	sampledArithCDF = plotData.arithCDF[::sampleInterval]
+
+	'''
+	loadCDF  = axs1.bar(x, plotData.loadCDF, color=plotColor['load'])
+	storeCDF = axs1.bar(x, plotData.storeCDF, bottom=plotData.loadCDF, color=plotColor['store'])
+	arithCDF = axs1.bar(x, plotData.arithCDF, bottom=np.array(plotData.loadCDF) + np.array(plotData.storeCDF), color=plotColor['varith'])
+	'''
+	
+	loadCDF  = axs1.bar(x, sampledLoadCDF, color=plotColor['load'])
+	storeCDF = axs1.bar(x, sampledStoreCDF, bottom=sampledLoadCDF, color=plotColor['store'])
+	arithCDF = axs1.bar(x, sampledArithCDF, bottom=np.array(sampledLoadCDF) + np.array(sampledStoreCDF), color=plotColor['varith'])
+
+	#xticks = x * sampleInterval
+	#axs1.set_xticks(x)
+	#axs1.set_xticklabels(xticks)
+	#axs1.tick_params(axis='x', rotation=90)
+
+	# axs1.xaxis.set_major_locator(ticker.MultipleLocator(10000))
+	axs1.xaxis.set_major_formatter(ticker.FuncFormatter(to_sampled))
+	axs1.tick_params(axis='x', rotation=90)
+
+	axs1.yaxis.set_major_locator(ticker.MultipleLocator(1000000))
+	axs1.yaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
+
+
 ## Initialize argparse ==============================================
 parser = argparse.ArgumentParser()
 
@@ -91,6 +259,7 @@ parser.add_argument('--plot-ldst', action='store_true', help='Enable plotting lo
 parser.add_argument('--plot-arith', action='store_true', help='Enable plotting arithmetic instruction traces')
 parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
 parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
+parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 
 args = parser.parse_args()
 
@@ -103,10 +272,11 @@ if not args.plot_ldst and not args.plot_arith:
 ## Open the trace log or dump file ==================================
 #logFileName = 'ecg_small_20240624_142406'		# stack=200K (default)
 #logFileName = 'ecg_small_20240705_140632'		# stack=100K
-logFileName = 'ecg_small_20240705_142117'		# stack=10M
+#logFileName = 'ecg_small_20240705_142117'		# stack=10M
 # logFileName = 'ecg_small_20240705_143322'		# another stack=200K
 #logFileName = 'mobile_net_v1_20240703_142550'
 #logFileName = 'mnist_20240703_142344'
+logFileName = 'mobilebert_ldst_mini2'
 
 pathName = 'log/%s.txt' % logFileName
 logFile = None
@@ -161,6 +331,22 @@ imemAddrBase = 0x32000000
 plotData = DLPlotData()
 epilogue = ''
 
+loadCnt = 0
+storeCnt = 0
+arithCnt = 0
+
+fploadCnt = 0
+fpstoreCnt = 0
+fparithCnt = 0
+
+vloadCnt = 0
+vstoreCnt = 0
+varithCnt = 0
+
+loadCntTotal = 0
+storeCntTotal = 0
+arithCntTotal = 0
+
 if dumpReadMode:
 	plotData = pickle.load(dumpFile)
 	plotData.displayBoundary()
@@ -181,11 +367,22 @@ else:
 			epilogue = line
 			break
 		
+		## Update cumulative graph ======================================================
+		loadCntTotal = loadCnt + fploadCnt + vloadCnt
+		storeCntTotal = storeCnt + fpstoreCnt + vstoreCnt
+		memCntTotal = loadCntTotal + storeCntTotal
+		arithCntTotal = arithCnt + fparithCnt + varithCnt
+		plotData.loadCDF.append(loadCntTotal)
+		plotData.storeCDF.append(storeCntTotal)
+		plotData.arithCDF.append(arithCntTotal)
+		#================================================================================
+
 		matches = pattern.findall(line)
 		matchLen = len(matches)
 		if (matchLen == 4 or matchLen == 5): # arithmetic(=4) or load/store(=5)
 			## Tokenize
 			instCtr = int(matches[0])
+			plotData.instCtr.append(instCtr)
 			#opc = int(matches[1], 16) # opcode
 			opcCnt = int(matches[2])
 			pc = int(matches[3].split(sep='=')[1].strip(), 16)
@@ -205,12 +402,15 @@ else:
 				if 'f' in opStr: # FP arith
 					plotData.fparithX.append(instCtr)
 					plotData.fparithY.append(pc)
+					fparithCnt += 1
 				elif 'v' in opStr: # vector arith
 					plotData.varithX.append(instCtr)
 					plotData.varithY.append(pc)
+					varithCnt += 1
 				else: # integer arith
 					plotData.arithX.append(instCtr)
 					plotData.arithY.append(pc)
+					arithCnt += 1
 				pass
 			else: # load/store
 				## Update segment boundary
@@ -230,24 +430,29 @@ else:
 					if 'l' in opStr: # load
 						plotData.fploadX.append(instCtr)
 						plotData.fploadY.append(addr)
+						fploadCnt += 1
 					else: # store
 						plotData.fpstoreX.append(instCtr)
 						plotData.fpstoreY.append(addr)
-						pass
+						fpstoreCnt += 1
 				elif 'v' in opStr: # vector load/store
 					if 'l' in opStr: # load
 						plotData.vloadX.append(instCtr)
 						plotData.vloadY.append(addr)
+						vloadCnt += 1
 					else: # store
 						plotData.vstoreX.append(instCtr)
 						plotData.vstoreY.append(addr)
+						vstoreCnt += 1
 				else: # integer load/store
 					if 'l' in opStr: # load
 						plotData.loadX.append(instCtr)
 						plotData.loadY.append(addr)
+						loadCnt += 1
 					elif 's' in opStr: # store
 						plotData.storeX.append(instCtr)
 						plotData.storeY.append(addr)
+						storeCnt += 1
 					else:
 						print('%s: illegal instruction' % line)
 						break
@@ -258,13 +463,14 @@ else:
 			print('%s: unknown instruction, matchLen=%d' % (line, matchLen))
 
 	print('\n')
-	print(epilogue, end='')
-	plotData.epilogue += epilogue
-	for line in logFile:
-		print(line, end='')
-		plotData.epilogue += line
-		if "Total instructions" in line:
-			plotData.totalInstCnt = int(line.split(sep=':')[1].strip())
+	if epilogue is not None:
+		print(epilogue, end='')
+		plotData.epilogue += epilogue
+		for line in logFile:
+			print(line, end='')
+			plotData.epilogue += line
+			if "Total instructions" in line:
+				plotData.totalInstCnt = int(line.split(sep=':')[1].strip())
 
 	logFile.close()
 	
@@ -291,6 +497,19 @@ if not dumpReadMode:
 	#dumpFile.close()
 	print('Plot data saved in %s' % dumpPathName)
 
+if args.cumulative:
+	print()
+	print("## Cumulative mode statistics ##")
+	print('loadCntTotal: %d' % loadCntTotal)
+	print('storeCntTotal: %d' % storeCntTotal)
+	print('arithCntTotal: %d' % arithCntTotal)
+	print('len(loadCDF): %d' % len(plotData.loadCDF))
+	print('len(fploadCDF): %d' % len(plotData.fploadCDF))
+	print('len(vloadCDF): %d' % len(plotData.vloadCDF))
+	print('len(storeCDF): %d' % len(plotData.storeCDF))
+	print('len(arithCDF): %d' % len(plotData.storeCDF))
+	print('len(plotData.instCtr): %d' % len(plotData.instCtr))
+
 ## 그래프 출력 ========================================================
 # Initialize plot
 plotColor = {
@@ -306,124 +525,26 @@ plotColor = {
 	'varith': '#d0eb06'		# 연두색
 }
 
-if args.plot_ldst or args.all:
-	if args.separate:
-		## 4개 창 생성 및 개별 그래프 출력
-		fig1, axs1 = plt.subplots(num=1)
-		fig1.canvas.manager.set_window_title('Memory access trace')
-		initPlotFormat(axs1)
-		axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
-		axs1.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
-		axs1.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
-		axs1.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
-		axs1.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
-		axs1.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
-		axs1.set_title('Memory access trace (all)')
+print()
+print('Plotting graphs...')
 
-		fig2, axs2 = plt.subplots(num=2)
-		fig2.canvas.manager.set_window_title('Memory access trace')
-		initPlotFormat(axs2)
-		axs2.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
-		axs2.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
-		axs2.set_title('Memory access trace (integer load/store)')
+if args.cumulative:
+	plotCumul()
+else:
+	## load/store 명령어
+	if args.plot_ldst or args.all:
+		if args.separate:
+			plotLdst()
 
-		fig3, axs3 = plt.subplots(num=3)
-		fig3.canvas.manager.set_window_title('Memory access trace')
-		initPlotFormat(axs3)
-		axs3.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
-		axs3.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
-		axs3.set_title('Memory access trace (FP load/store)')
+		else:
+			plotLdstSep()
 
-		fig4, axs4 = plt.subplots(num=4)
-		fig4.canvas.manager.set_window_title('Memory access trace')
-		initPlotFormat(axs4)
-		axs4.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
-		axs4.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
-		axs4.set_title('Memory access trace (vector load/store)')
-
-	else:
-		## 1개 창, 서브 플롯 2x2개 생성
-		fig1, axs1 = plt.subplots(2, 2, num='Memory Access Trace')
-
-		# plt.ylim(0x34000000, 0x35000000)
-		# plt.ylim(0, 0x1100000)
-		# plt.xlim(plotData.totalInstCnt + 1000)
-
-		# 그래프 서식 일괄 적용
-		for ax in axs1.flat:
-			initPlotFormat(ax)
-		
-		# 개별 그래프 출력
-		axs1[0, 0].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
-		axs1[0, 0].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
-		axs1[0, 0].scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
-		axs1[0, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
-		axs1[0, 0].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
-		axs1[0, 0].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
-		axs1[0, 0].set_title('Memory access trace (all)')
-
-		axs1[0, 1].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
-		axs1[0, 1].scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
-		axs1[0, 1].set_title('Integer load/store only')
-
-		axs1[1, 0].scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
-		axs1[1, 0].scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
-		axs1[1, 0].set_title('FP load/store only')
-
-		axs1[1, 1].scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
-		axs1[1, 1].scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
-		axs1[1, 1].set_title('Vector load/store only')
-
-
-## 새로운 창: 산술 연산 명령어
-if args.plot_arith or args.all:
-	if args.separate:
-		fig1, axs1 = plt.subplots(num=5)
-		initPlotFormat(axs1, pltype='arith')
-		fig1.canvas.manager.set_window_title('Arithmetic operations trace')
-		axs1.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
-		axs1.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
-		axs1.scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
-		axs1.set_title('Arithmetic operations trace (all)')
-
-		fig2, axs2 = plt.subplots(num=6)
-		initPlotFormat(axs2, pltype='arith')
-		fig2.canvas.manager.set_window_title('Arithmetic operations trace')
-		axs2.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
-		axs2.set_title('Integer arithmetic only')
-
-		fig3, axs3 = plt.subplots(num=7)
-		initPlotFormat(axs3, pltype='arith')
-		fig3.canvas.manager.set_window_title('Arithmetic operations trace')
-		axs3.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
-		axs3.set_title('FP arithmetic only')
-
-		fig4, axs4 = plt.subplots(num=8)
-		initPlotFormat(axs4, pltype='arith')
-		fig4.canvas.manager.set_window_title('Arithmetic operations trace')
-		axs4.scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
-		axs4.set_title('Vector arithmetic only')
-	else:
-		# 서브 플롯 2x2개 생성
-		fig2, axs2 = plt.subplots(2, 2, num='Arithmetic Operations')
-		# 그래프 서식 일괄 적용
-		for ax in axs2.flat:
-			initPlotFormat(ax, pltype='arith')
-
-		# 개별 그래프 출력
-		axs2[0, 0].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
-		axs2[0, 0].scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
-		axs2[0, 0].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
-		axs2[0, 0].set_title('Arithmetic operations trace (all)')
-
-		axs2[0, 1].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
-		axs2[0, 1].set_title('Integer arithmetic only')
-
-		axs2[1, 0].scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
-		axs2[1, 0].set_title('FP arithmetic only')
-
-		axs2[1, 1].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
-		axs2[1, 1].set_title('Vector arithmetic only')
+	## 새로운 창: 산술 연산 명령어
+	if args.plot_arith or args.all:
+		if args.separate:
+			plotArithSep()
+		else:
+			plotArith()
 
 # 전체 레이아웃 조정
 #fig1.tight_layout()
