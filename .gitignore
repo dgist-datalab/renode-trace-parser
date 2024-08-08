@@ -2,6 +2,7 @@
 dump/
 figure/
 examples/
+log/
 *.txt
 *.py
 !trace-parse.py

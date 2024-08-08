@@ -6,6 +6,18 @@ import sys
 import os.path
 import pickle
 import argparse
+import time
+
+DL_TRACE_SIZE_COMPACT_MEM = 13
+DL_TRACE_SIZE_COMPACT_ARITH = 14
+
+## 로그 파일명 설정
+# 구버전
+# logFileName = 'ecg_small_20240624_142406' # with arithmetic, human-readable
+
+# 신버전
+# logFileName = 'ecg_small_20240807_013944' # with arithmetic, binary, 130M
+logFileName = 'ecg_small_20240807_013502' # with arithmetic, human-readable, 474M
 
 class DLPlotData:
 	def __init__(self):
@@ -260,6 +272,7 @@ parser.add_argument('--plot-arith', action='store_true', help='Enable plotting a
 parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
 parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 parser.add_argument('--cumulative', action='store_true', help='CDF mode')
+parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
 
 args = parser.parse_args()
 
@@ -276,9 +289,11 @@ if not args.plot_ldst and not args.plot_arith:
 # logFileName = 'ecg_small_20240705_143322'		# another stack=200K
 #logFileName = 'mobile_net_v1_20240703_142550'
 #logFileName = 'mnist_20240703_142344'
-logFileName = 'mobilebert_ldst_mini2'
 
-pathName = 'log/%s.txt' % logFileName
+if args.human_readable:
+	pathName = 'log/%s.txt' % logFileName
+else:
+	pathName = 'log/%s.bin' % logFileName
 logFile = None
 
 dumpPathName = 'dump/dump_%s.pkl' % logFileName
@@ -291,7 +306,10 @@ if os.path.isfile(dumpPathName):
 	dumpReadMode = True
 
 if os.path.isfile(pathName):
-	logFile = open(pathName, 'r', encoding='utf-8')
+	if args.human_readable:
+		logFile = open(pathName, 'r', encoding='utf-8')
+	else:
+		logFile = open(pathName, 'rb')
 	print('File %s is opened' % pathName)
 else:
 	print('E: file %s does not exist' % pathName)
@@ -357,127 +375,148 @@ if dumpReadMode:
 		print('Plot data is loaded from %s successfully' % dumpPathName)
 
 else:
-	# 패턴 매칭: 숫자 | 16진수 숫자 | pc=숫자 | addr=숫자
-	pattern = re.compile(r'\b\d+\b|\b[0-9a-fA-F]+\b|\bpc=[0-9a-fA-F]+\b|\baddr=[0-9a-fA-F]+\b')
+	startTime = time.time()
+	if args.human_readable:
+		# 패턴 매칭: 숫자 | 16진수 숫자 | pc=숫자 | addr=숫자
+		pattern = re.compile(r'\b\d+\b|\b[0-9a-fA-F]+\b|\bpc=[0-9a-fA-F]+\b|\baddr=[0-9a-fA-F]+\b')
 
-	for line in logFile:
-		# 로그 파일에서 ##로 시작하는 행이 나오면 반복 종료
-		epilogue = re.match(r'^##', line)
-		if epilogue is not None:
-			epilogue = line
-			break
-		
-		## Update cumulative graph ======================================================
-		loadCntTotal = loadCnt + fploadCnt + vloadCnt
-		storeCntTotal = storeCnt + fpstoreCnt + vstoreCnt
-		memCntTotal = loadCntTotal + storeCntTotal
-		arithCntTotal = arithCnt + fparithCnt + varithCnt
-		plotData.loadCDF.append(loadCntTotal)
-		plotData.storeCDF.append(storeCntTotal)
-		plotData.arithCDF.append(arithCntTotal)
-		#================================================================================
-
-		matches = pattern.findall(line)
-		matchLen = len(matches)
-		if (matchLen == 4 or matchLen == 5): # arithmetic(=4) or load/store(=5)
-			## Tokenize
-			instCtr = int(matches[0])
-			plotData.instCtr.append(instCtr)
-			#opc = int(matches[1], 16) # opcode
-			opcCnt = int(matches[2])
-			pc = int(matches[3].split(sep='=')[1].strip(), 16)
-			opStr = (line.split()[1]).split(sep='(')[0]
-			addr = 0
-
-			if matchLen == 5: # load/store
-				addr = int(matches[4].split(sep='=')[1].strip(), 16)
-				#sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x, addr=%x' % (instCtr, opStr, opc, opcCnt, pc, addr))
-				sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x, addr=%x' % (instCtr, opStr, opcCnt, pc, addr))
-			elif matchLen == 4: # arithmetic
-				#sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x' % (instCtr, opStr, opc, opcCnt, pc))
-				sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x' % (instCtr, opStr, opcCnt, pc))
-			
-			## Update plot data
-			if matchLen == 4: # arithmetic
-				if 'f' in opStr: # FP arith
-					plotData.fparithX.append(instCtr)
-					plotData.fparithY.append(pc)
-					fparithCnt += 1
-				elif 'v' in opStr: # vector arith
-					plotData.varithX.append(instCtr)
-					plotData.varithY.append(pc)
-					varithCnt += 1
-				else: # integer arith
-					plotData.arithX.append(instCtr)
-					plotData.arithY.append(pc)
-					arithCnt += 1
-				pass
-			else: # load/store
-				## Update segment boundary
-				if addr > (dmemAddrBase | 0x00f00000): # stack
-					if plotData.stackAddrHigh < addr:
-						plotData.stackAddrHigh = addr
-					if plotData.stackAddrLow > addr:
-						plotData.stackAddrLow = addr
-				else: # data
-					if plotData.dataAddrHigh < addr:
-						plotData.dataAddrHigh = addr
-					if plotData.dataAddrLow > addr:
-						plotData.dataAddrLow = addr
-				
-				## Append graph points
-				if 'f' in opStr: # FP load/store
-					if 'l' in opStr: # load
-						plotData.fploadX.append(instCtr)
-						plotData.fploadY.append(addr)
-						fploadCnt += 1
-					else: # store
-						plotData.fpstoreX.append(instCtr)
-						plotData.fpstoreY.append(addr)
-						fpstoreCnt += 1
-				elif 'v' in opStr: # vector load/store
-					if 'l' in opStr: # load
-						plotData.vloadX.append(instCtr)
-						plotData.vloadY.append(addr)
-						vloadCnt += 1
-					else: # store
-						plotData.vstoreX.append(instCtr)
-						plotData.vstoreY.append(addr)
-						vstoreCnt += 1
-				else: # integer load/store
-					if 'l' in opStr: # load
-						plotData.loadX.append(instCtr)
-						plotData.loadY.append(addr)
-						loadCnt += 1
-					elif 's' in opStr: # store
-						plotData.storeX.append(instCtr)
-						plotData.storeY.append(addr)
-						storeCnt += 1
-					else:
-						print('%s: illegal instruction' % line)
-						break
-
-			# sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x, addr=%x' 
-			# 	% (instCtr, opStr, opc, opcCnt, pc, addr))
-		else:
-			print('%s: unknown instruction, matchLen=%d' % (line, matchLen))
-
-	print('\n')
-	if epilogue is not None:
-		print(epilogue, end='')
-		plotData.epilogue += epilogue
 		for line in logFile:
-			print(line, end='')
-			plotData.epilogue += line
-			if "Total instructions" in line:
-				plotData.totalInstCnt = int(line.split(sep=':')[1].strip())
+			# 로그 파일에서 ##로 시작하는 행이 나오면 반복 종료
+			epilogue = re.match(r'^##', line)
+			if epilogue is not None:
+				epilogue = line
+				break
+			
+			## Update cumulative graph ======================================================
+			# loadCntTotal = loadCnt + fploadCnt + vloadCnt
+			# storeCntTotal = storeCnt + fpstoreCnt + vstoreCnt
+			# memCntTotal = loadCntTotal + storeCntTotal
+			# arithCntTotal = arithCnt + fparithCnt + varithCnt
+			# plotData.loadCDF.append(loadCntTotal)
+			# plotData.storeCDF.append(storeCntTotal)
+			# plotData.arithCDF.append(arithCntTotal)
+			#================================================================================
 
+			matches = pattern.findall(line)
+			matchLen = len(matches)
+			if (matchLen == 4 or matchLen == 5): # arithmetic(=4) or load/store(=5)
+				## Tokenize
+				instCtr = int(matches[0])
+				plotData.instCtr.append(instCtr)
+				#opc = int(matches[1], 16) # opcode
+				opcCnt = int(matches[2])
+				pc = int(matches[3].split(sep='=')[1].strip(), 16)
+				opStr = (line.split()[1]).split(sep='(')[0]
+				addr = 0
+
+				if matchLen == 5: # load/store
+					addr = int(matches[4].split(sep='=')[1].strip(), 16)
+					#sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x, addr=%x' % (instCtr, opStr, opc, opcCnt, pc, addr))
+					sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x, addr=%x' % (instCtr, opStr, opcCnt, pc, addr))
+				elif matchLen == 4: # arithmetic
+					#sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x' % (instCtr, opStr, opc, opcCnt, pc))
+					sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x' % (instCtr, opStr, opcCnt, pc))
+				
+				## Update plot data
+				if matchLen == 4: # arithmetic
+					if 'f' in opStr: # FP arith
+						plotData.fparithX.append(instCtr)
+						plotData.fparithY.append(pc)
+						fparithCnt += 1
+					elif 'v' in opStr: # vector arith
+						plotData.varithX.append(instCtr)
+						plotData.varithY.append(pc)
+						varithCnt += 1
+					else: # integer arith
+						plotData.arithX.append(instCtr)
+						plotData.arithY.append(pc)
+						arithCnt += 1
+					pass
+				else: # load/store
+					## Update segment boundary
+					if addr > (dmemAddrBase | 0x00f00000): # stack
+						if plotData.stackAddrHigh < addr:
+							plotData.stackAddrHigh = addr
+						if plotData.stackAddrLow > addr:
+							plotData.stackAddrLow = addr
+					else: # data
+						if plotData.dataAddrHigh < addr:
+							plotData.dataAddrHigh = addr
+						if plotData.dataAddrLow > addr:
+							plotData.dataAddrLow = addr
+					
+					## Append graph points
+					if 'f' in opStr: # FP load/store
+						if 'l' in opStr: # load
+							plotData.fploadX.append(instCtr)
+							plotData.fploadY.append(addr)
+							fploadCnt += 1
+						else: # store
+							plotData.fpstoreX.append(instCtr)
+							plotData.fpstoreY.append(addr)
+							fpstoreCnt += 1
+					elif 'v' in opStr: # vector load/store
+						if 'l' in opStr: # load
+							plotData.vloadX.append(instCtr)
+							plotData.vloadY.append(addr)
+							vloadCnt += 1
+						else: # store
+							plotData.vstoreX.append(instCtr)
+							plotData.vstoreY.append(addr)
+							vstoreCnt += 1
+					else: # integer load/store
+						if 'l' in opStr: # load
+							plotData.loadX.append(instCtr)
+							plotData.loadY.append(addr)
+							loadCnt += 1
+						elif 's' in opStr: # store
+							plotData.storeX.append(instCtr)
+							plotData.storeY.append(addr)
+							storeCnt += 1
+						else:
+							print('%s: illegal instruction' % line)
+							break
+
+				# sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x, addr=%x' 
+				# 	% (instCtr, opStr, opc, opcCnt, pc, addr))
+			else:
+				print('%s: unknown instruction, matchLen=%d' % (line, matchLen))
+
+		print('\n')
+		if epilogue is not None:
+			print(epilogue, end='')
+			plotData.epilogue += epilogue
+			for line in logFile:
+				print(line, end='')
+				plotData.epilogue += line
+				if "Total instructions" in line:
+					plotData.totalInstCnt = int(line.split(sep=':')[1].strip())
+	else: # binary trace mode
+		print('open in binary trace mode!')
+		while True:
+			trace = logFile.read(DL_TRACE_SIZE_COMPACT_MEM)
+			if not trace:
+				break
+			opType = trace[0] & 1
+			dataType = (trace[0] >> 1) & 0b111
+			operandSize = trace[0] >> 4
+			instCtr = int.from_bytes(trace[1:9], byteorder='little')
+			addr = int.from_bytes(trace[9:], byteorder='little')
+			sys.stdout.write('\r' + '[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
+			if opType == 1 or dataType == 2:
+				opclass = logFile.read(1)
+				sys.stdout.write('opclass: %#x' % opclass[0])
+
+	endTime = time.time()
 	logFile.close()
+	print(f'Elapsed time for trace analysis: {endTime - startTime:.5f} sec')
+	exit(0)
 	
-if dumpReadMode:
+if args.human_readable and dumpReadMode:
 	print()
 	print(plotData.epilogue)
 
+## 통계 정보 출력 및 덤프 저장 ==============================================
 print()
 print("## Data ##")
 print("address (low) : %x" % plotData.dataAddrLow)
