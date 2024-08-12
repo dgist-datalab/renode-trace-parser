@@ -13,11 +13,11 @@ DL_TRACE_SIZE_COMPACT_ARITH = 14
 
 ## 로그 파일명 설정
 # 구버전
-# logFileName = 'ecg_small_20240624_142406' # with arithmetic, human-readable
+# logFileName = 'ecg_small_20240624_142406' # human-readable, with arithmetic
 
 # 신버전
-# logFileName = 'ecg_small_20240807_013944' # with arithmetic, binary, 130M
-logFileName = 'ecg_small_20240807_013502' # with arithmetic, human-readable, 474M
+logFileName = 'ecg_small_20240807_013502' # human-readable, with arithmetic
+# logFileName = 'ecg_small_20240812_163305'
 
 class DLPlotData:
 	def __init__(self):
@@ -45,6 +45,11 @@ class DLPlotData:
 		# vector arithmetic
 		self.varithX = []
 		self.varithY = []
+		# unknown and custom
+		# TODO: custom instruction의 경우 opclass에 따라 세분화할 것
+		self.customX = []
+		self.customOpclass = []
+
 		# memory access boundary
 		self.dataAddrLow	= 0xffffffff
 		self.dataAddrHigh	= 0x00000000
@@ -273,6 +278,7 @@ parser.add_argument('--separate', action='store_true', help='All subplots are re
 parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
+parser.add_argument('--verbose', action='store_true')
 
 args = parser.parse_args()
 
@@ -374,7 +380,8 @@ if dumpReadMode:
 	else:
 		print('Plot data is loaded from %s successfully' % dumpPathName)
 
-else:
+else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
+	print(f'Analyze {pathName}...')
 	startTime = time.time()
 	if args.human_readable:
 		# 패턴 매칭: 숫자 | 16진수 숫자 | pc=숫자 | addr=숫자
@@ -412,10 +419,13 @@ else:
 				if matchLen == 5: # load/store
 					addr = int(matches[4].split(sep='=')[1].strip(), 16)
 					#sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x, addr=%x' % (instCtr, opStr, opc, opcCnt, pc, addr))
-					sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x, addr=%x' % (instCtr, opStr, opcCnt, pc, addr))
+					if args.verbose:
+						sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x, addr=%x' % (instCtr, opStr, opcCnt, pc, addr))
 				elif matchLen == 4: # arithmetic
+					#pass
 					#sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x' % (instCtr, opStr, opc, opcCnt, pc))
-					sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x' % (instCtr, opStr, opcCnt, pc))
+					if args.verbose:
+						sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x' % (instCtr, opStr, opcCnt, pc))
 				
 				## Update plot data
 				if matchLen == 4: # arithmetic
@@ -497,20 +507,69 @@ else:
 			trace = logFile.read(DL_TRACE_SIZE_COMPACT_MEM)
 			if not trace:
 				break
-			opType = trace[0] & 1
-			dataType = (trace[0] >> 1) & 0b111
-			operandSize = trace[0] >> 4
+			## traceV2: lower부만 변경 있음
+			opType = trace[0] & 0b11
+			dataType = (trace[0] >> 2) & 0b111
+			operandSize = trace[0] >> 5
 			instCtr = int.from_bytes(trace[1:9], byteorder='little')
 			addr = int.from_bytes(trace[9:], byteorder='little')
-			sys.stdout.write('\r' + '[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
-			if opType == 1 or dataType == 2:
+
+			opclass = 0
+
+			if args.verbose:
+				sys.stdout.write('\r' + '[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
+			if opType == 2 or dataType == 3:
 				opclass = logFile.read(1)
-				sys.stdout.write('opclass: %#x' % opclass[0])
+				if args.verbose:
+					sys.stdout.write('opclass: %#x' % opclass[0])
+			
+			# opType: load/store/arith/unknown
+			# dataType: sint/uint/float/vector
+			# operandSize: 8/16/32/64/128
+			if opType == 3: # unknown or custom
+				# TODO: custom instruction의 경우 opclass에 따라 세분화할 것
+				# unknown은 무시할 수 있다
+				plotData.customX.append(instCtr)
+				plotData.customOpclass.append(opclass)
+			elif opType == 0: # load
+				if dataType == 0 or dataType == 1: # int
+					plotData.loadX.append(instCtr)
+					plotData.loadY.append(addr)
+				elif dataType == 2: # float
+					plotData.fploadX.append(instCtr)
+					plotData.fploadY.append(addr)
+				else: # vector
+					plotData.vloadX.append(instCtr)
+					plotData.vloadY.append(addr)
+			elif opType == 1: # store
+				if dataType == 0 or dataType == 1: # int
+					plotData.storeX.append(instCtr)
+					plotData.storeY.append(addr)
+				elif dataType == 2: # float
+					plotData.fpstoreX.append(instCtr)
+					plotData.fpstoreY.append(addr)
+				else: # vector
+					plotData.vstoreX.append(instCtr)
+					plotData.vstoreY.append(addr)
+			elif opType == 2: # arith
+				if dataType == 0 or dataType == 1:
+					plotData.arithX.append(instCtr)
+					plotData.arithY.append(addr)
+				elif dataType == 2: # float
+					plotData.fparithX.append(instCtr)
+					plotData.fparithY.append(addr)
+				else: # vector
+					plotData.varithX.append(instCtr)
+					plotData.varithY.append(addr)
+			else: # parsing error
+				print('E: unrecognized instruction:')
+				print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
+				exit(1)
 
 	endTime = time.time()
 	logFile.close()
-	print(f'Elapsed time for trace analysis: {endTime - startTime:.5f} sec')
-	exit(0)
+	print('Trace analyzing has completed')
+	print(f'Elapsed time: {endTime - startTime:.5f} sec')
 	
 if args.human_readable and dumpReadMode:
 	print()
