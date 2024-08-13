@@ -17,7 +17,10 @@ DL_TRACE_SIZE_COMPACT_ARITH = 14
 
 # 신버전
 #logFileName = 'ecg_small_20240807_013502' # human-readable, with arithmetic
-logFileName = 'ecg_small_20240812_163305'
+#logFileName = 'ecg_small_20240812_163305' # binary, with arithmetic
+
+# logFileName = 'mnist_20240813_200917' # binary, with arithmetic
+logFileName = 'mobilenet_20240813_201434' # binary, with arithmetic
 
 class DLPlotData:
     def __init__(self):
@@ -55,6 +58,9 @@ class DLPlotData:
         self.dataAddrHigh	= 0x00000000
         self.stackAddrLow	= 0xffffffff
         self.stackAddrHigh	= 0x00000000
+        # PC boundary
+        self.pcLow          = 0x00000000
+        self.pcHigh         = 0xffffffff
         # total instructions
         self.totalInstCnt = 0
         self.epilogue = ''
@@ -106,7 +112,7 @@ def getIMemLength(model_name='ecg_small'):
     if model_name == 'mobilebert':
         return 128 * 1024 * 1024 # 128M
     else: # default (1M)
-        return 1024
+        return 1024 * 1024
 
 def getDMemLength(model_name='ecg_small'):
     if model_name == 'mobilebert':
@@ -149,7 +155,34 @@ def getStackBaseAddress(model_name='ecg_small'):
     stackSize = getStackSize(model_name)
     return dmemBase + dmemLength - stackSize
 
+def getIntegerRound(num, mode='dec'):
+    base = 10       # 진수
+    shiftamt = 0    # 얼마나 나눴는지
+    if mode == 'hex':
+        base = 0x10
+    # 최상위 n자리 추출
+    nUpperDigits = 2
+    upperDigits = num
+    while upperDigits > base ** nUpperDigits:
+        upperDigits /= base
+        shiftamt += 1
+    upperDigits = int(upperDigits)
+    msd = int(upperDigits / (base ** (nUpperDigits-1)))         # 최상위 숫자
+    subUpperDigits = upperDigits % (base ** (nUpperDigits-1))   # 최상위 숫자를 제외한 나머지 부분
+    # print(f'msd: {msd}')
+    # print(f'subUpperDigits: {subUpperDigits}')
+
+    if subUpperDigits >= (base ** (nUpperDigits-1)) / 2: # 반올림
+        msd += 1
+    msd *= base ** (shiftamt + nUpperDigits - 1)
+    # print(f'result: {msd}')
+    return msd
+
 def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
+    '''
+    multipleLocatorX = 500000
+    multipleLocatorY = 0x200000
+
     if model_name == 'ecg_small':
         if pltype == 'ldst':
             multipleLocatorX = 500000
@@ -172,6 +205,21 @@ def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
             pass
         else:
             pass
+    '''
+    xtickNum = 25 # x축 눈금의 개수를 25개로 제한
+    multipleLocatorX = int(plotData.totalInstCnt / xtickNum)
+
+    ytickNum = 10 # y축 눈금의 개수를 10개로 제한
+    if pltype == 'ldst':
+        multipleLocatorY = int(getDMemLength(model_name) / ytickNum)
+    else:
+        #multipleLocatorY = int(getIMemLength(model_name) / ytickNum)
+        # IMem 전체 영역을 기준으로 하는 것보다 실제 실행된 명령어의 PC 범위를 사용하는 것이 더욱 정확함
+        multipleLocatorY = int((plotData.pcHigh - plotData.pcLow) / ytickNum)
+    
+    multipleLocatorX = getIntegerRound(multipleLocatorX, 'dec')
+    multipleLocatorY = getIntegerRound(multipleLocatorY, 'hex')
+    print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
 
     ax.grid(False)
     ax.set_xlabel('# instruction')
@@ -379,15 +427,16 @@ if os.path.isfile(dumpPathName):
     dumpFile = open(dumpPathName, 'rb')
     dumpReadMode = True
 
-if os.path.isfile(pathName):
-    if args.human_readable:
-        logFile = open(pathName, 'r', encoding='utf-8')
+if not dumpReadMode:
+    if os.path.isfile(pathName):
+        if args.human_readable:
+            logFile = open(pathName, 'r', encoding='utf-8')
+        else:
+            logFile = open(pathName, 'rb')
+        print('File %s is opened' % pathName)
     else:
-        logFile = open(pathName, 'rb')
-    print('File %s is opened' % pathName)
-else:
-    print('E: file %s does not exist' % pathName)
-    exit(1)
+        print('E: file %s does not exist' % pathName)
+        exit(1)
 
 # class:
 # (1) load/store
@@ -446,6 +495,8 @@ loadCntTotal = 0
 storeCntTotal = 0
 arithCntTotal = 0
 
+lastInstCtr = 0
+
 if dumpReadMode:
     plotData = pickle.load(dumpFile)
     plotData.displayBoundary()
@@ -457,6 +508,8 @@ if dumpReadMode:
 
 else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
     print(f'Analyze {pathName}...')
+    plotData.pcLow = getIMemBaseAddress(modelName)
+    plotData.pcHigh = getIMemBaseAddress(modelName)
     startTime = time.time()
     if args.human_readable:
         # 패턴 매칭: 숫자 | 16진수 숫자 | pc=숫자 | addr=숫자
@@ -493,14 +546,13 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
 
                 if matchLen == 5: # load/store
                     addr = int(matches[4].split(sep='=')[1].strip(), 16)
-                    #sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x, addr=%x' % (instCtr, opStr, opc, opcCnt, pc, addr))
                     if args.verbose:
                         sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x, addr=%x' % (instCtr, opStr, opcCnt, pc, addr))
                 elif matchLen == 4: # arithmetic
-                    #pass
-                    #sys.stdout.write('\r' + '[%d] op=%s: opcode=%x, count=%d, pc=%x' % (instCtr, opStr, opc, opcCnt, pc))
                     if args.verbose:
                         sys.stdout.write('\r' + '[%d] op=%s: count=%d, pc=%x' % (instCtr, opStr, opcCnt, pc))
+                    if plotData.pcHigh < pc:
+                        plotData.pcHigh = pc
                 
                 ## Update plot data
                 if matchLen == 4: # arithmetic
@@ -516,7 +568,6 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         plotData.arithX.append(instCtr)
                         plotData.arithY.append(pc)
                         arithCnt += 1
-                    pass
                 else: # load/store
                     ## Update segment boundary
                     if addr > (dmemAddrBase | 0x00f00000): # stack
@@ -635,6 +686,8 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 else: # vector
                     plotData.varithX.append(instCtr)
                     plotData.varithY.append(addr)
+                if plotData.pcHigh < addr:
+                    plotData.pcHigh = addr
             else: # parsing error
                 print('E: unrecognized instruction:')
                 print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
@@ -651,9 +704,12 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         plotData.dataAddrHigh = addr
                     if plotData.dataAddrLow > addr:
                         plotData.dataAddrLow = addr
+            
+            lastInstCtr = instCtr
         # End of loop
+        plotData.totalInstCnt = lastInstCtr + 100
+        print(f'Last instruction counter: {lastInstCtr}')
     # End of trace analysis
-
     endTime = time.time()
     logFile.close()
     print('Trace analyzing has been completed')
@@ -665,22 +721,23 @@ if args.human_readable and dumpReadMode:
 
 ## 통계 정보 출력 및 덤프 저장 ==============================================
 print()
-print("## Data ##")
-print("address (low) : %x" % plotData.dataAddrLow)
-print("address (high): %x" % plotData.dataAddrHigh)
-print("--> %d KB" % ((plotData.dataAddrHigh - plotData.dataAddrLow) / 1024))
-print()
-print("## Stack ##")
-print("address (low) : %x" % plotData.stackAddrLow)
-print("address (high): %x" % plotData.stackAddrHigh)
-print("--> %d KB" % ((plotData.stackAddrHigh - plotData.stackAddrLow) / 1024))
+print('## Data ##')
+print('address (low) : %x' % plotData.dataAddrLow)
+print('address (high): %x' % plotData.dataAddrHigh)
+print('--> %d KB\n' % ((plotData.dataAddrHigh - plotData.dataAddrLow) / 1024))
+print('## Stack ##')
+print('address (low) : %x' % plotData.stackAddrLow)
+print('address (high): %x' % plotData.stackAddrHigh)
+print('--> %d KB\n' % ((plotData.stackAddrHigh - plotData.stackAddrLow) / 1024))
+print('## PC    ##')
+print('address (low) : %x' % plotData.pcLow)
+print('address (high): %x' % plotData.pcHigh)
+print('--> %d KB\n' % ((plotData.pcHigh - plotData.pcLow) / 1024))
 
 # 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장
 if not dumpReadMode:
     dumpFile = open(dumpPathName, 'wb')
     plotData.saveDump(dumpFile)
-    #dumpSave(dumpFile, plotData)
-    #dumpFile.close()
     print('Plot data saved in %s' % dumpPathName)
 
 if args.cumulative:
