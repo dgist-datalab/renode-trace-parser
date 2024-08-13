@@ -16,8 +16,8 @@ DL_TRACE_SIZE_COMPACT_ARITH = 14
 # logFileName = 'ecg_small_20240624_142406' # human-readable, with arithmetic
 
 # 신버전
-logFileName = 'ecg_small_20240807_013502' # human-readable, with arithmetic
-# logFileName = 'ecg_small_20240812_163305'
+#logFileName = 'ecg_small_20240807_013502' # human-readable, with arithmetic
+logFileName = 'ecg_small_20240812_163305'
 
 class DLPlotData:
 	def __init__(self):
@@ -98,12 +98,54 @@ def to_hex(data, pos):
 def to_sampled(data, pos):
 	return f'{int(data) * sampleInterval}'
 
-def initPlotFormat(ax, pltype='ldst'):
-	multipleLocatorX = 500000
-	multipleLocatorY = 0x200000
-	if pltype != 'ldst':
+def getIMemBaseAddress(model_name='ecg_small'):
+	if model_name == 'mobilebert':
+		return 0x32000000
+	else:
+		return 0x32000000
+
+def getDMemBaseAddress(model_name='ecg_small'):
+	if model_name == 'mobilebert':
+		return 0x3c000000
+	else:
+		return 0x34000000
+
+# PROVIDE( _stack_ptr = ORIGIN(DTCM) + LENGTH(DTCM) - 64 );
+# PROVIDE( _stack_start_sentinel = ORIGIN(DTCM) + LENGTH(DTCM) - STACK_SIZE );
+# PROVIDE( _stack_end_sentinel = ORIGIN(DTCM) + LENGTH(DTCM) - 64 );
+def getStackBaseAddress(model_name='ecg_small'):
+    dmemBase = getDMemBaseAddress(model_name)
+    dmemLength = 0
+    stackSize = 0
+
+    if model_name == 'mobilebert':
+        # ['h3c00_0000 - 'h4c00_0000)
+        dmemLength = 256 * 1024 * 1024  # 256M
+        stackSize = 32 * 1024 * 1024    # 32M
+    elif model_name == 'ecg_small':
+        dmemLength = 16 * 1024 * 1024   # 16M
+        stackSize = 200 * 1024			# 200K
+    else: # default
+        # ['h3400_0000 - 'h3500_0000)
+        dmemLength = 16 * 1024 * 1024   # 16M
+        stackSize = 10 * 1024           # 10K
+
+    stackBase = dmemBase + dmemLength - stackSize
+    return stackBase
+
+def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
+	if model_name == 'ecg_small' or model_name == 'ecg':
 		multipleLocatorX = 500000
-		multipleLocatorY = 0x8000
+		multipleLocatorY = 0x200000
+		if pltype != 'ldst':
+			multipleLocatorX = 500000
+			multipleLocatorY = 0x8000
+	elif model_name == 'mnist':
+		pass
+	elif model_name == 'mobilenet':
+		pass
+	elif model_name == 'mobilebert':
+		pass
 
 	ax.grid(False)
 	ax.set_xlabel('# instruction')
@@ -350,10 +392,17 @@ else:
 # [4931914] varithi.vi(=3057)/43: pc=32021510
 
 ## Initialize plot data =============================================
-dmemAddrBase = 0x34000000
-imemAddrBase = 0x32000000
+modelName = 'ecg_small'
+imemAddrBase = getIMemBaseAddress(modelName)
+dmemAddrBase = getDMemBaseAddress(modelName)
+stackBase = getStackBaseAddress(modelName)
 plotData = DLPlotData()
 epilogue = ''
+
+print(f'Model name: {modelName}')
+print(f'IMem base: {imemAddrBase: #08x}')
+print(f'DMem base: {dmemAddrBase: #08x}')
+print(f'Stack base: {stackBase: #08x}')
 
 loadCnt = 0
 storeCnt = 0
@@ -502,7 +551,6 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
 				if "Total instructions" in line:
 					plotData.totalInstCnt = int(line.split(sep=':')[1].strip())
 	else: # binary trace mode
-		print('open in binary trace mode!')
 		while True:
 			trace = logFile.read(DL_TRACE_SIZE_COMPACT_MEM)
 			if not trace:
@@ -565,6 +613,19 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
 				print('E: unrecognized instruction:')
 				print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
 				exit(1)
+			## Update segment boundary
+			if opType == 0 or opType == 1: # load/store
+				if addr >= stackBase: # stack
+					if plotData.stackAddrHigh < addr:
+						plotData.stackAddrHigh = addr
+					if plotData.stackAddrLow > addr:
+						plotData.stackAddrLow = addr
+				else: # data
+					if plotData.dataAddrHigh < addr:
+						plotData.dataAddrHigh = addr
+					if plotData.dataAddrLow > addr:
+						plotData.dataAddrLow = addr
+
 
 	endTime = time.time()
 	logFile.close()
