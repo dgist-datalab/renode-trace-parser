@@ -19,8 +19,18 @@ DL_TRACE_SIZE_COMPACT_ARITH = 14
 #logFileName = 'ecg_small_20240807_013502' # human-readable, with arithmetic
 #logFileName = 'ecg_small_20240812_163305' # binary, with arithmetic
 
-# logFileName = 'mnist_20240813_200917' # binary, with arithmetic
+#logFileName = 'mnist_20240813_200917' # binary, with arithmetic
 logFileName = 'mobilenet_20240813_201434' # binary, with arithmetic
+
+#modelName = 'ecg_small'
+modelName = 'mobilenet'
+
+# TODO:
+# Add Human-readable MNIST and MobileNet traces
+# Add --file-name or -f option to specify input file name
+# Add --disable-dump-read option
+# Add sampling
+# Add elapsed time for graph plotting
 
 class DLPlotData:
     def __init__(self):
@@ -467,7 +477,6 @@ if not dumpReadMode:
 # [4931914] varithi.vi(=3057)/43: pc=32021510
 
 ## Initialize plot data =============================================
-modelName = 'ecg_small'
 imemAddrBase = getIMemBaseAddress(modelName)
 dmemAddrBase = getDMemBaseAddress(modelName)
 stackBase = getStackBaseAddress(modelName)
