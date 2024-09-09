@@ -20,10 +20,19 @@ DL_TRACE_SIZE_COMPACT_ARITH = 14
 #logFileName = 'ecg_small_20240812_163305' # binary, with arithmetic
 
 #logFileName = 'mnist_20240813_200917' # binary, with arithmetic
-logFileName = 'mobilenet_20240813_201434' # binary, with arithmetic
+#logFileName = 'mobilenet_20240813_201434' # binary, with arithmetic
 
+#logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
 #modelName = 'ecg_small'
-modelName = 'mobilenet'
+#modelName = 'mobilenet'
+
+# logFileName = 'fc_basic_20240909_171650_batch1'
+# logFileName = 'fc_basic_20240909_171747_batch4'
+# logFileName = 'fc_basic_20240909_172026_batch8'
+# logFileName = 'fc_basic_20240909_172133_batch16'
+# logFileName = 'fc_basic_20240909_172400_batch32'
+logFileName = 'fc_basic_20240909_172615_batch128'
+modelName = 'fc_basic'
 
 # TODO:
 # Add Human-readable MNIST and MobileNet traces
@@ -31,6 +40,8 @@ modelName = 'mobilenet'
 # Add --disable-dump-read option
 # Add sampling
 # Add elapsed time for graph plotting
+# Add --model-name option to configure specific ML model
+# Add 'Section Table'
 
 class DLPlotData:
     def __init__(self):
@@ -60,8 +71,9 @@ class DLPlotData:
         self.varithY = []
         # unknown and custom
         # TODO: custom instruction의 경우 opclass에 따라 세분화할 것
-        self.customX = []
-        self.customOpclass = []
+        self.customX = [] # instCtr
+        self.customY = [] # PC
+        self.customOpclass = [] # funct3 and opcode
 
         # memory access boundary
         self.dataAddrLow	= 0xffffffff
@@ -141,6 +153,8 @@ def getStackSize(model_name='ecg_small'):
         return 300 * 1024 # 300K
     elif model_name == 'mobilebert':
         return 32 * 1024 * 1024 # 32M
+    elif model_name == 'fc_basic':
+        return 200 * 1024 # 200K
     else: # default (10K)
         return 10 * 1024
 
@@ -227,6 +241,8 @@ def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
         # IMem 전체 영역을 기준으로 하는 것보다 실제 실행된 명령어의 PC 범위를 사용하는 것이 더욱 정확함
         multipleLocatorY = int((plotData.pcHigh - plotData.pcLow) / ytickNum)
     
+    print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
+    print(f'total instruction count: {plotData.totalInstCnt}')
     multipleLocatorX = getIntegerRound(multipleLocatorX, 'dec')
     multipleLocatorY = getIntegerRound(multipleLocatorY, 'hex')
     print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
@@ -245,6 +261,18 @@ def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
     # 프로그램 시작과 끝 지점에 세로선 출력
     ax.axvline(x=0, color='#aaaaaa', linestyle='--', linewidth=1)
     ax.axvline(x=plotData.totalInstCnt, color='#aaaaaa', linestyle='--', linewidth=1)
+    # 커스텀 명령어 실행 지점 출력
+    for i, cx in enumerate(plotData.customX):
+        opclass = plotData.customOpclass[i]
+        opcode = opclass & 0b11
+        funct3 = (opclass >> 2) & 0b111
+        lcolor = '#aaaaaa'
+        if opcode == 0b00: # custom-0
+            if funct3 == 0: # dr.bedin
+                lcolor = '#c8fe2e'
+            elif funct3 == 1: # dr.end
+                lcolor = '#facc2e'
+            ax.axvline(x=cx, color=lcolor, linestyle='--', linewidth=1)
 
 def plotLdst():
     ## 4개 창 생성 및 개별 그래프 출력
@@ -405,6 +433,7 @@ parser.add_argument('--save-figure', action='store_true', help='Save figures as 
 parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
 parser.add_argument('--verbose', action='store_true')
+parser.add_argument('--disable-dump', action='store_true', help='Disable plot dump save/load')
 
 args = parser.parse_args()
 
@@ -432,7 +461,7 @@ dumpPathName = 'dump/dump_%s.pkl' % logFileName
 dumpReadMode = False
 dumpFile = None
 
-if os.path.isfile(dumpPathName):
+if os.path.isfile(dumpPathName) and (not args.disable_dump):
     print('Dump file %s is detected' % dumpPathName)
     dumpFile = open(dumpPathName, 'rb')
     dumpReadMode = True
@@ -652,20 +681,15 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
 
             if args.verbose:
                 sys.stdout.write('\r' + '[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
-            if opType == 2 or dataType == 3:
-                opclass = logFile.read(1)
+            if opType == 2 or dataType == 3 or opType == 3: # custom instruction도 opclass를 읽어야 한다
+                opclass = (logFile.read(1))[0]
                 if args.verbose:
-                    sys.stdout.write('opclass: %#x' % opclass[0])
+                    sys.stdout.write('opclass: %#x' % opclass)
             
             # opType: load/store/arith/unknown
             # dataType: sint/uint/float/vector
             # operandSize: 8/16/32/64/128
-            if opType == 3: # unknown or custom
-                # TODO: custom instruction의 경우 opclass에 따라 세분화할 것
-                # unknown은 무시할 수 있다
-                plotData.customX.append(instCtr)
-                plotData.customOpclass.append(opclass)
-            elif opType == 0: # load
+            if opType == 0: # load
                 if dataType == 0 or dataType == 1: # int
                     plotData.loadX.append(instCtr)
                     plotData.loadY.append(addr)
@@ -697,6 +721,16 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     plotData.varithY.append(addr)
                 if plotData.pcHigh < addr:
                     plotData.pcHigh = addr
+            elif opType == 3: # custom/unknown
+                # TODO: custom instruction의 경우 opclass에 따라 세분화할 것
+                # unknown은 무시할 수 있다
+                # if opclass & 0b11100000:
+                plotData.customX.append(instCtr)
+                plotData.customY.append(addr)
+                plotData.customOpclass.append(opclass)
+                opc = opclass & 0b11
+                funct3 = (opclass >> 2) & 0b111
+                print('[%d] custom-%d opclass=%02x funct3=%x pc=%#x ' % (instCtr, opc, opclass, funct3, addr))
             else: # parsing error
                 print('E: unrecognized instruction:')
                 print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
@@ -715,7 +749,7 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         plotData.dataAddrLow = addr
             
             lastInstCtr = instCtr
-        # End of loop
+        # End of while loop
         plotData.totalInstCnt = lastInstCtr + 100
         print(f'Last instruction counter: {lastInstCtr}')
     # End of trace analysis
@@ -744,7 +778,7 @@ print('address (high): %x' % plotData.pcHigh)
 print('--> %d KB\n' % ((plotData.pcHigh - plotData.pcLow) / 1024))
 
 # 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장
-if not dumpReadMode:
+if not dumpReadMode and (not args.disable_dump):
     dumpFile = open(dumpPathName, 'wb')
     plotData.saveDump(dumpFile)
     print('Plot data saved in %s' % dumpPathName)
