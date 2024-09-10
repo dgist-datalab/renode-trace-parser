@@ -11,6 +11,24 @@ import time
 DL_TRACE_SIZE_COMPACT_MEM = 13
 DL_TRACE_SIZE_COMPACT_ARITH = 14
 
+## Initialize argparse ==============================================
+parser = argparse.ArgumentParser()
+
+parser.add_argument('--all', action='store_true', help='Enable all options')
+parser.add_argument('--plot-ldst', action='store_true', help='Enable plotting load/store instruction traces')
+parser.add_argument('--plot-arith', action='store_true', help='Enable plotting arithmetic instruction traces')
+parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
+parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
+parser.add_argument('--cumulative', action='store_true', help='CDF mode')
+parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
+parser.add_argument('--verbose', action='store_true')
+parser.add_argument('--disable-dump', action='store_true', help='Disable plot dump save/load')
+parser.add_argument('--enable-section-stat', action='store_true')
+parser.add_argument('--model-name', action='store', help='Specify target model name')
+parser.add_argument('--batch-size', action='store', help='Specify batch size')
+
+args = parser.parse_args()
+
 ## 로그 파일명 설정
 # 구버전
 # logFileName = 'ecg_small_20240624_142406' # human-readable, with arithmetic
@@ -22,19 +40,48 @@ DL_TRACE_SIZE_COMPACT_ARITH = 14
 #logFileName = 'mnist_20240813_200917' # binary, with arithmetic
 #logFileName = 'mobilenet_20240813_201434' # binary, with arithmetic
 
-#logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
 #modelName = 'ecg_small'
 #modelName = 'mobilenet'
 
-# logFileName = 'fc_basic_20240909_171650_batch1'
-# logFileName = 'fc_basic_20240909_171747_batch4'
-# logFileName = 'fc_basic_20240909_172026_batch8'
-# logFileName = 'fc_basic_20240909_172133_batch16'
-# logFileName = 'fc_basic_20240909_172400_batch32'
-logFileName = 'fc_basic_20240909_172615_batch128'
 modelName = 'fc_basic'
+batchSize = 128
 
-headerFileName = 'fc_basic_emitc_static_batch128_headers'
+logFileName = ''
+headerFileName = ''
+
+if args.model_name is not None:
+    modelName = args.model_name
+
+if args.batch_size is not None:
+    batchSize = int(args.batch_size)
+
+#print(f'Model name: {modelName}')
+
+if modelName == 'fc_basic':
+    if batchSize == 1:
+        logFileName = 'fc_basic_20240909_171650_batch1'
+        headerFileName = 'fc_basic_emitc_static_batch1_headers'
+    elif batchSize == 4:
+        logFileName = 'fc_basic_20240909_171747_batch4'
+        headerFileName = 'fc_basic_emitc_static_batch4_headers'
+    elif batchSize == 8:
+        logFileName = 'fc_basic_20240909_172026_batch8'
+        headerFileName = 'fc_basic_emitc_static_batch8_headers'
+    elif batchSize == 16:
+        logFileName = 'fc_basic_20240909_172133_batch16'
+        headerFileName = 'fc_basic_emitc_static_batch16_headers'
+    elif batchSize == 32:
+        logFileName = 'fc_basic_20240909_172400_batch32'
+        headerFileName = 'fc_basic_emitc_static_batch32_headers'
+    elif batchSize == 128:
+        logFileName = 'fc_basic_20240909_172615_batch128'
+        headerFileName = 'fc_basic_emitc_static_batch128_headers'
+    else:
+        print('E: %s, batch=%d is not available' % (modelName, batchSize))
+        exit(1)
+elif modelName == 'ecg_small':
+    logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
+    headerFileName = 'ecg_small_fp32_emitc_static_headers'
 
 # TODO:
 # Add Human-readable MNIST and MobileNet traces
@@ -91,6 +138,30 @@ def loadSectionTable(filename):
         sectionTable.append(entry)
     headerFile.close()
     print('Section Table has successfully constructed')
+
+def initSectionStat():
+    for s in sectionTable:
+        if s.vma == 0x00000000:
+            continue
+        sectionAccessCounter[s.name] = 0
+
+def getSectionName(addr):
+    for s in sectionTable:
+        if addr >= s.vma and addr < s.vma + s.size:
+            return s.name
+    return None
+
+def putSectionStat(addr):
+    name = getSectionName(addr)
+    if name is None:
+        print('[putSectionStat] E: illegal address %08x' % addr)
+        return
+    #print('%08x: %s' % (addr, name))
+    sectionAccessCounter[name] += 1
+
+def displaySectionStat():
+    for k, v in sectionAccessCounter.items():
+        print('%-30s %d' % (k, v))
 
 class DLPlotData:
     def __init__(self):
@@ -252,33 +323,6 @@ def getIntegerRound(num, mode='dec'):
     return msd
 
 def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
-    '''
-    multipleLocatorX = 500000
-    multipleLocatorY = 0x200000
-
-    if model_name == 'ecg_small':
-        if pltype == 'ldst':
-            multipleLocatorX = 500000
-            multipleLocatorY = 0x200000
-        else: # 산술연산; IMem 접근
-            multipleLocatorX = 500000
-            multipleLocatorY = 0x8000
-    elif model_name == 'mnist':
-        if pltype == 'ldst':
-            pass
-        else:
-            pass
-    elif model_name == 'mobilenet':
-        if pltype == 'ldst':
-            pass
-        else:
-            pass
-    elif model_name == 'mobilebert':
-        if pltype == 'ldst':
-            pass
-        else:
-            pass
-    '''
     xtickNum = 25 # x축 눈금의 개수를 25개로 제한
     multipleLocatorX = int(plotData.totalInstCnt / xtickNum)
 
@@ -484,25 +528,12 @@ def plotCumul():
     axs1.yaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
 
 
-## Initialize argparse ==============================================
-parser = argparse.ArgumentParser()
-
-parser.add_argument('--all', action='store_true', help='Enable all options')
-parser.add_argument('--plot-ldst', action='store_true', help='Enable plotting load/store instruction traces')
-parser.add_argument('--plot-arith', action='store_true', help='Enable plotting arithmetic instruction traces')
-parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
-parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
-parser.add_argument('--cumulative', action='store_true', help='CDF mode')
-parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
-parser.add_argument('--verbose', action='store_true')
-parser.add_argument('--disable-dump', action='store_true', help='Disable plot dump save/load')
-
-args = parser.parse_args()
-
 ## Load Section Table from file =====================================
 sectionTable = []
-loadSectionTable(headerFileName)
+sectionAccessCounter = {}
 
+loadSectionTable(headerFileName)
+initSectionStat()
 
 # 아무 인자 없을 시 --plot-ldst, --plot-arith는 참으로 설정
 #if len(sys.argv) < 2:
@@ -757,6 +788,9 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             # dataType: sint/uint/float/vector
             # operandSize: 8/16/32/64/128
             if opType == 0: # load
+                if args.enable_section_stat:
+                    putSectionStat(addr)
+
                 if dataType == 0 or dataType == 1: # int
                     plotData.loadX.append(instCtr)
                     plotData.loadY.append(addr)
@@ -767,6 +801,9 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     plotData.vloadX.append(instCtr)
                     plotData.vloadY.append(addr)
             elif opType == 1: # store
+                if args.enable_section_stat:
+                    putSectionStat(addr)
+
                 if dataType == 0 or dataType == 1: # int
                     plotData.storeX.append(instCtr)
                     plotData.storeY.append(addr)
@@ -862,6 +899,10 @@ if args.cumulative:
     print('len(storeCDF): %d' % len(plotData.storeCDF))
     print('len(arithCDF): %d' % len(plotData.storeCDF))
     print('len(plotData.instCtr): %d' % len(plotData.instCtr))
+
+## enable-section-stat 옵션이 활성화되어 있는 경우 관련 통계 데이터 출력 =====
+if args.enable_section_stat:
+    displaySectionStat()
 
 ## 그래프 출력 ========================================================
 # Initialize plot
