@@ -34,6 +34,8 @@ DL_TRACE_SIZE_COMPACT_ARITH = 14
 logFileName = 'fc_basic_20240909_172615_batch128'
 modelName = 'fc_basic'
 
+headerFileName = 'fc_basic_emitc_static_batch128_headers'
+
 # TODO:
 # Add Human-readable MNIST and MobileNet traces
 # Add --file-name or -f option to specify input file name
@@ -42,6 +44,53 @@ modelName = 'fc_basic'
 # Add elapsed time for graph plotting
 # Add --model-name option to configure specific ML model
 # Add 'Section Table'
+# Section Table도 dump file로 save/load 가능하도록
+# Add --enable-section-stat option
+
+# 딕셔너리로 접근할지 아님 idx를 배열 인덱스로 접근할지?
+class SectionTableEntry:
+    def __init__(self):
+        self.idx = 0
+        self.name = ''
+        self.size = 0
+        self.vma = 0
+        self.lma = 0
+        self.fileOff = 0
+        self.aligh = 0
+    
+    def examine(self):
+        print(f'idx: {self.idx}, {self.name}, size: {self.size:08x}, vma: {self.vma:08x}, lma: {self.lma:08x}, fileOff: {self.fileOff:08x}, align: {self.align}')
+    
+def loadSectionTable(filename):
+    fpath = 'header/' + filename + '.dump'
+    print(f'Load from {fpath}...')
+    if os.path.isfile(fpath):
+        headerFile = open(fpath, 'r', encoding='utf-8')
+    else:
+        print('E: file %s does not exist' % fpath)
+        exit(1)
+
+    # 데이터 이전의 행들은 읽어서 무시
+    for line in headerFile:
+        if 'Idx' in line:
+            break
+
+    for line in headerFile:
+        tokens = line.split()
+        if not tokens[0].isnumeric():
+            continue
+        entry = SectionTableEntry()
+        entry.idx = int(tokens[0])
+        entry.name = tokens[1]
+        entry.size = int(tokens[2], 16)
+        entry.vma = int(tokens[3], 16)
+        entry.lma = int(tokens[4], 16)
+        entry.fileOff = int(tokens[5], 16)
+        entry.align = tokens[6]
+        entry.examine()
+        sectionTable.append(entry)
+    headerFile.close()
+    print('Section Table has successfully constructed')
 
 class DLPlotData:
     def __init__(self):
@@ -241,8 +290,8 @@ def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
         # IMem 전체 영역을 기준으로 하는 것보다 실제 실행된 명령어의 PC 범위를 사용하는 것이 더욱 정확함
         multipleLocatorY = int((plotData.pcHigh - plotData.pcLow) / ytickNum)
     
-    print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
-    print(f'total instruction count: {plotData.totalInstCnt}')
+    #print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
+    #print(f'total instruction count: {plotData.totalInstCnt}')
     multipleLocatorX = getIntegerRound(multipleLocatorX, 'dec')
     multipleLocatorY = getIntegerRound(multipleLocatorY, 'hex')
     print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
@@ -274,11 +323,20 @@ def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
                 lcolor = '#facc2e'
             ax.axvline(x=cx, color=lcolor, linestyle='--', linewidth=1)
 
-def plotLdst():
+def plotSectionBoundary(ax):
+    for s in sectionTable:
+        if s.vma < getDMemBaseAddress(modelName):
+            continue
+        print('%-30s VMA=%08x, Size=%08x' % (s.name, s.vma, s.size))
+        ax.axhline(y=s.vma, color='#aaaaaa', linestyle='--', linewidth=1, alpha=0.7, label=s.name)
+    print()
+
+def plotLdstSep():
     ## 4개 창 생성 및 개별 그래프 출력
     fig1, axs1 = plt.subplots(num=1)
     fig1.canvas.manager.set_window_title('Memory access trace')
     initPlotFormat(axs1)
+    plotSectionBoundary(axs1)
     axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
     axs1.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
     axs1.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
@@ -290,6 +348,7 @@ def plotLdst():
     fig2, axs2 = plt.subplots(num=2)
     fig2.canvas.manager.set_window_title('Memory access trace')
     initPlotFormat(axs2)
+    plotSectionBoundary(axs2)
     axs2.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
     axs2.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
     axs2.set_title('Memory access trace (integer load/store)')
@@ -297,6 +356,7 @@ def plotLdst():
     fig3, axs3 = plt.subplots(num=3)
     fig3.canvas.manager.set_window_title('Memory access trace')
     initPlotFormat(axs3)
+    plotSectionBoundary(axs3)
     axs3.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
     axs3.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
     axs3.set_title('Memory access trace (FP load/store)')
@@ -304,11 +364,12 @@ def plotLdst():
     fig4, axs4 = plt.subplots(num=4)
     fig4.canvas.manager.set_window_title('Memory access trace')
     initPlotFormat(axs4)
+    plotSectionBoundary(axs4)
     axs4.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
     axs4.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
     axs4.set_title('Memory access trace (vector load/store)')
 
-def plotLdstSep():
+def plotLdst():
     ## 1개 창, 서브 플롯 2x2개 생성
     fig1, axs1 = plt.subplots(2, 2, num='Memory Access Trace')
 
@@ -319,6 +380,7 @@ def plotLdstSep():
     # 그래프 서식 일괄 적용
     for ax in axs1.flat:
         initPlotFormat(ax)
+        plotSectionBoundary(ax)
     
     # 개별 그래프 출력
     axs1[0, 0].scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
@@ -436,6 +498,11 @@ parser.add_argument('--verbose', action='store_true')
 parser.add_argument('--disable-dump', action='store_true', help='Disable plot dump save/load')
 
 args = parser.parse_args()
+
+## Load Section Table from file =====================================
+sectionTable = []
+loadSectionTable(headerFileName)
+
 
 # 아무 인자 없을 시 --plot-ldst, --plot-arith는 참으로 설정
 #if len(sys.argv) < 2:
@@ -820,10 +887,11 @@ else:
     ## load/store 명령어
     if args.plot_ldst or args.all:
         if args.separate:
-            plotLdst()
+            plotLdstSep()
 
         else:
-            plotLdstSep()
+            plotLdst()
+            
 
     ## 새로운 창: 산술 연산 명령어
     if args.plot_arith or args.all:
