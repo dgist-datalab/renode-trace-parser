@@ -134,16 +134,17 @@ def loadSectionTable(filename):
         entry.lma = int(tokens[4], 16)
         entry.fileOff = int(tokens[5], 16)
         entry.align = tokens[6]
-        entry.examine()
         sectionTable.append(entry)
+        if args.verbose:
+            entry.examine()
     headerFile.close()
     print('Section Table has successfully constructed')
 
-def initSectionStat():
+def initSectionStat(accTbl):
     for s in sectionTable:
         if s.vma == 0x00000000:
             continue
-        sectionAccessCounter[s.name] = 0
+        accTbl[s.name] = 0
 
 def getSectionName(addr):
     for s in sectionTable:
@@ -151,16 +152,16 @@ def getSectionName(addr):
             return s.name
     return None
 
-def putSectionStat(addr):
+def putSectionStat(accTbl, addr):
     name = getSectionName(addr)
     if name is None:
         print('[putSectionStat] E: illegal address %08x' % addr)
         return
     #print('%08x: %s' % (addr, name))
-    sectionAccessCounter[name] += 1
+    accTbl[name] += 1
 
-def displaySectionStat():
-    for k, v in sectionAccessCounter.items():
+def displaySectionStat(accTbl):
+    for k, v in accTbl.items():
         print('%-30s %d' % (k, v))
 
 class DLPlotData:
@@ -338,7 +339,8 @@ def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
     #print(f'total instruction count: {plotData.totalInstCnt}')
     multipleLocatorX = getIntegerRound(multipleLocatorX, 'dec')
     multipleLocatorY = getIntegerRound(multipleLocatorY, 'hex')
-    print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
+    if args.verbose:
+        print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
 
     ax.grid(False)
     ax.set_xlabel('# instruction')
@@ -371,9 +373,11 @@ def plotSectionBoundary(ax):
     for s in sectionTable:
         if s.vma < getDMemBaseAddress(modelName):
             continue
-        print('%-30s VMA=%08x, Size=%08x' % (s.name, s.vma, s.size))
+        if args.verbose:
+            print('%-30s VMA=%08x, Size=%08x' % (s.name, s.vma, s.size))
         ax.axhline(y=s.vma, color='#aaaaaa', linestyle='--', linewidth=1, alpha=0.7, label=s.name)
-    print()
+    if args.verbose:
+        print()
 
 def plotLdstSep():
     ## 4개 창 생성 및 개별 그래프 출력
@@ -530,10 +534,12 @@ def plotCumul():
 
 ## Load Section Table from file =====================================
 sectionTable = []
-sectionAccessCounter = {}
+globalSectionAccessTable = {}
+localSectionAccessTable = []
 
 loadSectionTable(headerFileName)
-initSectionStat()
+print()
+initSectionStat(globalSectionAccessTable)
 
 # 아무 인자 없을 시 --plot-ldst, --plot-arith는 참으로 설정
 #if len(sys.argv) < 2:
@@ -614,6 +620,7 @@ print(f'Model name: {modelName}')
 print(f'IMem base: {imemAddrBase: #08x}')
 print(f'DMem base: {dmemAddrBase: #08x}')
 print(f'Stack base: {stackBase: #08x}')
+print()
 
 loadCnt = 0
 storeCnt = 0
@@ -632,6 +639,10 @@ storeCntTotal = 0
 arithCntTotal = 0
 
 lastInstCtr = 0
+
+# Custom instruction data
+curDispatchRegion = -1
+onDispatchRegion = False
 
 if dumpReadMode:
     plotData = pickle.load(dumpFile)
@@ -789,7 +800,9 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             # operandSize: 8/16/32/64/128
             if opType == 0: # load
                 if args.enable_section_stat:
-                    putSectionStat(addr)
+                    putSectionStat(globalSectionAccessTable, addr)
+                    if onDispatchRegion:
+                        putSectionStat(localSectionAccessTable[curDispatchRegion], addr)
 
                 if dataType == 0 or dataType == 1: # int
                     plotData.loadX.append(instCtr)
@@ -802,7 +815,9 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     plotData.vloadY.append(addr)
             elif opType == 1: # store
                 if args.enable_section_stat:
-                    putSectionStat(addr)
+                    putSectionStat(globalSectionAccessTable, addr)
+                    if onDispatchRegion:
+                        putSectionStat(localSectionAccessTable[curDispatchRegion], addr)
 
                 if dataType == 0 or dataType == 1: # int
                     plotData.storeX.append(instCtr)
@@ -834,7 +849,22 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 plotData.customOpclass.append(opclass)
                 opc = opclass & 0b11
                 funct3 = (opclass >> 2) & 0b111
-                print('[%d] custom-%d opclass=%02x funct3=%x pc=%#x ' % (instCtr, opc, opclass, funct3, addr))
+                #print('[%d] custom-%d opclass=%02x funct3=%x pc=%#x ' % (instCtr, opc, opclass, funct3, addr))
+                if opc == 0:
+                    if funct3 == 0: # dr.begin
+                        curDispatchRegion += 1
+                        print(f'Dispatch region #{curDispatchRegion} begin')
+                        onDispatchRegion = True
+                        #globalSectionAccessTable
+                        accTblEntry = {}
+                        initSectionStat(accTblEntry)
+                        localSectionAccessTable.append(accTblEntry)
+
+
+                    elif funct3 == 1: #dr.end
+                        print(f'Dispatch region #{curDispatchRegion} end')
+                        onDispatchRegion = False
+
             else: # parsing error
                 print('E: unrecognized instruction:')
                 print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
@@ -902,7 +932,14 @@ if args.cumulative:
 
 ## enable-section-stat 옵션이 활성화되어 있는 경우 관련 통계 데이터 출력 =====
 if args.enable_section_stat:
-    displaySectionStat()
+    print('## Global section access statistics ##')
+    displaySectionStat(globalSectionAccessTable)
+    print()
+    print('## Local section access statistics ##')
+    for i, tbl in enumerate(localSectionAccessTable):
+        print(f'Dispatch region #{i}' + ('=' * 20))
+        displaySectionStat(tbl)
+    print()
 
 ## 그래프 출력 ========================================================
 # Initialize plot
