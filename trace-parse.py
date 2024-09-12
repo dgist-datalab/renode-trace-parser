@@ -928,6 +928,10 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     elif funct3 == 1: #dr.end
                         print(f'Dispatch region #{curDispatchRegion} end')
                         onDispatchRegion = False
+            else: # parsing error
+                print('E: unrecognized instruction:')
+                print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
+                exit(1)
             
             if args.enable_section_stat:
                 if opType == 0 or opType == 1: # load/store
@@ -940,10 +944,7 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         sst = SectionStatTable(sectionTable)
                         localSST.append(sst)
 
-            else: # parsing error
-                print('E: unrecognized instruction:')
-                print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
-                exit(1)
+
             ## Update segment boundary
             if opType == 0 or opType == 1: # load/store
                 if addr >= stackBase: # stack
