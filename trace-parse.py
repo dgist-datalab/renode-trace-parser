@@ -26,7 +26,9 @@ parser.add_argument('--disable-dump', action='store_true', help='Disable plot du
 parser.add_argument('--enable-section-stat', action='store_true')
 parser.add_argument('--model-name', action='store', help='Specify target model name')
 parser.add_argument('--batch-size', action='store', help='Specify batch size')
-
+parser.add_argument('--disable-plot', action='store_true')
+parser.add_argument('--without-custom', action='store_true')
+parser.add_argument('--disable-plot-section-boundary', action='store_true')
 args = parser.parse_args()
 
 ## 로그 파일명 설정
@@ -76,12 +78,19 @@ if modelName == 'fc_basic':
     elif batchSize == 128:
         logFileName = 'fc_basic_20240909_172615_batch128'
         headerFileName = 'fc_basic_emitc_static_batch128_headers'
+    elif batchSize == 512:
+        logFileName = 'fc_basic_20240911_144402_batch512'
+        headerFileName = 'fc_basic_emitc_static_batch512_headers'
     else:
         print('E: %s, batch=%d is not available' % (modelName, batchSize))
         exit(1)
 elif modelName == 'ecg_small':
-    logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
-    headerFileName = 'ecg_small_fp32_emitc_static_headers'
+    if args.without_custom:
+        logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
+        headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
+    else:
+        logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
+        headerFileName = 'ecg_small_fp32_emitc_static_headers'
 
 # TODO:
 # Add Human-readable MNIST and MobileNet traces
@@ -94,7 +103,8 @@ elif modelName == 'ecg_small':
 # Section Table도 dump file로 save/load 가능하도록
 # Add --enable-section-stat option
 
-# 딕셔너리로 접근할지 아님 idx를 배열 인덱스로 접근할지?
+
+# 딕셔너리로 접근할지 아님 idx를 배열 인덱스로 접근할지? -> 그냥 인덱스 번호로 인덱싱을 하기로 함 (하지만 별도로 다시 저장)
 class SectionTableEntry:
     def __init__(self):
         self.idx = 0
@@ -107,8 +117,8 @@ class SectionTableEntry:
     
     def examine(self):
         print(f'idx: {self.idx}, {self.name}, size: {self.size:08x}, vma: {self.vma:08x}, lma: {self.lma:08x}, fileOff: {self.fileOff:08x}, align: {self.align}')
-    
-def loadSectionTable(filename):
+
+def loadSectionTable(filename, secTbl):
     fpath = 'header/' + filename + '.dump'
     print(f'Load from {fpath}...')
     if os.path.isfile(fpath):
@@ -134,35 +144,102 @@ def loadSectionTable(filename):
         entry.lma = int(tokens[4], 16)
         entry.fileOff = int(tokens[5], 16)
         entry.align = tokens[6]
-        sectionTable.append(entry)
+        secTbl.append(entry)
         if args.verbose:
             entry.examine()
     headerFile.close()
     print('Section Table has successfully constructed')
 
-def initSectionStat(accTbl):
-    for s in sectionTable:
-        if s.vma == 0x00000000:
-            continue
-        accTbl[s.name] = 0
+class SectionStatTableEntry:
+    def __init__(self):
+        #self.secName = ''
+        self.loadInt = 0
+        self.loadUint = 0
+        self.loadFP = 0
+        self.loadVec = 0
+        self.storeInt = 0
+        self.storeUint = 0
+        self.storeFP = 0
+        self.storeVec = 0
 
-def getSectionName(addr):
-    for s in sectionTable:
+    def examine(self):
+        #print(f'{self.secName:-30s}',end=' ')
+        print(f'{self.loadInt:6d} {self.loadUint:6d} {self.loadFP:6d} {self.loadVec:6d}', end=' | ')
+        print(f'{self.storeInt:6d} {self.storeUint:6d} {self.storeFP:6d} {self.storeVec:6d}')
+
+class SectionStatTable:
+    def __init__(self, secTbl):
+        self.tbl = {}
+        for s in secTbl:
+            if s.vma == 0:
+                continue
+            self.tbl[s.name] = SectionStatTableEntry()
+            #self.tbl[s.name].secName = s.name
+
+    # optype: load/store/arith/custom
+    # dtype: sint/uint/float/vector
+    def put(self, secTbl, optype, dtype, addr):
+        name = getSectionName(secTbl, addr)
+        if name is None:
+            print('SectionStatTable.put: illegal address %08x' % addr)
+            return
+        #print('%08x: %s' % (addr, name))
+        if optype == 0: # load
+            if dtype == 0: # sint
+                self.tbl[name].loadInt += 1
+            elif dtype == 1: # uint
+                self.tbl[name].loadUint += 1
+            elif dtype == 2: # float
+                self.tbl[name].loadFP += 1
+            elif dtype == 3: # vector
+                self.tbl[name].loadVec += 1
+            else:
+                print('SectionStatTable.put: %d is illegal data type' % dtype)
+        elif optype == 1: # store
+            if dtype == 0: # sint
+                self.tbl[name].storeInt += 1
+            elif dtype == 1: # uint
+                self.tbl[name].storeUint += 1
+            elif dtype == 2: # float
+                self.tbl[name].storeFP += 1
+            elif dtype == 3: # vector
+                self.tbl[name].storeVec += 1
+            else:
+                print('SectionStatTable.put: %d is illegal data type' % dtype)
+        else:
+            print('SectionStatTable.put: %d is illegal operation type' % optype)
+            return
+
+    def examine(self):
+        print('%-30s %-27s | %-27s' % (' ', 'load', 'store'))
+        print('%-30s %-6s %-6s %-6s %-6s | %-6s %-6s %-6s %-6s' % ('section', 'int', 'uint', 'float', 'vector', 'int', 'uint', 'float', 'vector'))
+        for k, v in self.tbl.items():
+            print('%-30s' % k, end=' ')
+            v.examine()
+
+# def initSectionStat(accTbl):
+#     for s in sectionTable:
+#         if s.vma == 0x00000000:
+#             continue
+#         accTbl[s.name] = 0
+
+def getSectionName(secTbl, addr):
+    for s in secTbl:
         if addr >= s.vma and addr < s.vma + s.size:
             return s.name
     return None
 
-def putSectionStat(accTbl, addr):
-    name = getSectionName(addr)
-    if name is None:
-        print('[putSectionStat] E: illegal address %08x' % addr)
-        return
-    #print('%08x: %s' % (addr, name))
-    accTbl[name] += 1
+# def putSectionStat(accTbl, addr):
+#     name = getSectionName(addr)
+#     if name is None:
+#         print('[putSectionStat] E: illegal address %08x' % addr)
+#         return
+#     #print('%08x: %s' % (addr, name))
+#     accTbl[name] += 1
 
-def displaySectionStat(accTbl):
-    for k, v in accTbl.items():
-        print('%-30s %d' % (k, v))
+# def displaySectionStat(accTbl):
+#     for k, v in accTbl.items():
+#         print('%-30s %d' % (k, v))
 
 class DLPlotData:
     def __init__(self):
@@ -370,6 +447,8 @@ def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
             ax.axvline(x=cx, color=lcolor, linestyle='--', linewidth=1)
 
 def plotSectionBoundary(ax):
+    if args.disable_plot_section_boundary:
+        return
     for s in sectionTable:
         if s.vma < getDMemBaseAddress(modelName):
             continue
@@ -534,12 +613,12 @@ def plotCumul():
 
 ## Load Section Table from file =====================================
 sectionTable = []
-globalSectionAccessTable = {}
-localSectionAccessTable = []
+loadSectionTable(headerFileName, sectionTable)
 
-loadSectionTable(headerFileName)
+globalSST = SectionStatTable(sectionTable)
+localSST = []
+
 print()
-initSectionStat(globalSectionAccessTable)
 
 # 아무 인자 없을 시 --plot-ldst, --plot-arith는 참으로 설정
 #if len(sys.argv) < 2:
@@ -799,11 +878,6 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             # dataType: sint/uint/float/vector
             # operandSize: 8/16/32/64/128
             if opType == 0: # load
-                if args.enable_section_stat:
-                    putSectionStat(globalSectionAccessTable, addr)
-                    if onDispatchRegion:
-                        putSectionStat(localSectionAccessTable[curDispatchRegion], addr)
-
                 if dataType == 0 or dataType == 1: # int
                     plotData.loadX.append(instCtr)
                     plotData.loadY.append(addr)
@@ -814,11 +888,6 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     plotData.vloadX.append(instCtr)
                     plotData.vloadY.append(addr)
             elif opType == 1: # store
-                if args.enable_section_stat:
-                    putSectionStat(globalSectionAccessTable, addr)
-                    if onDispatchRegion:
-                        putSectionStat(localSectionAccessTable[curDispatchRegion], addr)
-
                 if dataType == 0 or dataType == 1: # int
                     plotData.storeX.append(instCtr)
                     plotData.storeY.append(addr)
@@ -855,15 +924,21 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         curDispatchRegion += 1
                         print(f'Dispatch region #{curDispatchRegion} begin')
                         onDispatchRegion = True
-                        #globalSectionAccessTable
-                        accTblEntry = {}
-                        initSectionStat(accTblEntry)
-                        localSectionAccessTable.append(accTblEntry)
-
 
                     elif funct3 == 1: #dr.end
                         print(f'Dispatch region #{curDispatchRegion} end')
                         onDispatchRegion = False
+            
+            if args.enable_section_stat:
+                if opType == 0 or opType == 1: # load/store
+                    globalSST.put(sectionTable, opType, dataType, addr)
+                    if onDispatchRegion:
+                        localSST[curDispatchRegion].put(sectionTable, opType, dataType, addr)
+                elif opType == 3: # custom
+                    #globalSectionAccessTable
+                    if opc ==0 and funct3 == 0: # dr.begin
+                        sst = SectionStatTable(sectionTable)
+                        localSST.append(sst)
 
             else: # parsing error
                 print('E: unrecognized instruction:')
@@ -933,12 +1008,12 @@ if args.cumulative:
 ## enable-section-stat 옵션이 활성화되어 있는 경우 관련 통계 데이터 출력 =====
 if args.enable_section_stat:
     print('## Global section access statistics ##')
-    displaySectionStat(globalSectionAccessTable)
+    globalSST.examine()
     print()
     print('## Local section access statistics ##')
-    for i, tbl in enumerate(localSectionAccessTable):
-        print(f'Dispatch region #{i}' + ('=' * 20))
-        displaySectionStat(tbl)
+    for i, sst in enumerate(localSST):
+        print(f'Dispatch region #{i}' + ('=' * 80))
+        sst.examine()
     print()
 
 ## 그래프 출력 ========================================================
@@ -957,6 +1032,10 @@ plotColor = {
 }
 
 print()
+
+if args.disable_plot:
+    exit(0)
+
 print('Plotting graphs...')
 
 if args.cumulative:
