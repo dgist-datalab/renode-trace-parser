@@ -94,14 +94,37 @@ elif modelName == 'ecg_small':
 
 # TODO:
 # Add Human-readable MNIST and MobileNet traces
-# Add --file-name or -f option to specify input file name
-# Add --disable-dump-read option
 # Add sampling
 # Add elapsed time for graph plotting
-# Add --model-name option to configure specific ML model
 # Add 'Section Table'
 # Section Table도 dump file로 save/load 가능하도록
-# Add --enable-section-stat option
+
+def loadDump():
+    dumpFile = open(dumpPathName, 'rb')
+    dumpData = pickle.load(dumpFile)
+    plotData = dumpData['plot_data']
+    sectionTable = dumpData['section_table']
+    globalSST = dumpData['global_sst']
+    localSST = dumpData['local_sst']
+    dumpFile.close()
+
+    if dumpData is None:
+        print('E: failed to load dump data')
+        exit(1)
+    else:
+        print(f'Plot data: loaded from {dumpPathName}')
+
+def saveDump():
+    dumpFile = open(dumpPathName, 'wb')
+    dumpData = {
+        'plot_data': plotData,
+        'section_table': sectionTable,
+        'global_sst': globalSST,
+        'local_sst': localSST
+    }
+    pickle.dump(dumpData, dumpFile)
+    dumpFile.close()
+    print(f'Plot data: saved in {dumpPathName}')
 
 
 # 딕셔너리로 접근할지 아님 idx를 배열 인덱스로 접근할지? -> 그냥 인덱스 번호로 인덱싱을 하기로 함 (하지만 별도로 다시 저장)
@@ -306,17 +329,6 @@ class DLPlotData:
         print("Data (high):  0x%x" % self.dataAddrHigh)
         print("Stack (low):  0x%x" % self.stackAddrLow)
         print("Stack (high): 0x%x" % self.stackAddrHigh)
-    
-    # def loadDump(self, dfile):
-    # 	if dfile is None:
-    # 		print('E: file %s is not opened' % dumpPathName)
-    # 		return False
-    # 	self = pickle.load(dfile)
-    # 	dfile.close()
-
-    def saveDump(self, dfile):
-        pickle.dump(self, dfile)
-        dfile.close()
 
 def to_hex(data, pos):
     return f'0x{int(data):X}'
@@ -642,13 +654,13 @@ logFile = None
 
 dumpPathName = 'dump/dump_%s.pkl' % logFileName
 dumpReadMode = False
-dumpFile = None
+# dumpFile = None
 
 if os.path.isfile(dumpPathName) and (not args.disable_dump):
     print('Dump file %s is detected' % dumpPathName)
-    dumpFile = open(dumpPathName, 'rb')
     dumpReadMode = True
 
+# dump 파일이 검출되지 않으면 trace log 파일을 읽는다
 if not dumpReadMode:
     if os.path.isfile(pathName):
         if args.human_readable:
@@ -724,15 +736,15 @@ curDispatchRegion = -1
 onDispatchRegion = False
 
 if dumpReadMode:
-    plotData = pickle.load(dumpFile)
+    loadDump()
     plotData.displayBoundary()
-    if plotData.totalInstCnt == 0:
-        print('E: failed to load plot data')
-        exit(1)
-    else:
-        print('Plot data is loaded from %s successfully' % dumpPathName)
+    if args.human_readable:
+        print()
+        print(plotData.epilogue)
 
-else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
+# 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
+# 관련 데이터 생성만 처리할 것
+else:
     print(f'Analyze {pathName}...')
     plotData.pcLow = getIMemBaseAddress(modelName)
     plotData.pcHigh = getIMemBaseAddress(modelName)
@@ -966,11 +978,10 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
     logFile.close()
     print('Trace analyzing has been completed')
     print(f'Elapsed time: {endTime - startTime:.5f} sec')
+    if not args.disable_dump:
+        saveDump()
+    # End of not dumpReadMode
     
-if args.human_readable and dumpReadMode:
-    print()
-    print(plotData.epilogue)
-
 ## 통계 정보 출력 및 덤프 저장 ==============================================
 print()
 print('## Data ##')
@@ -985,12 +996,6 @@ print('## PC    ##')
 print('address (low) : %x' % plotData.pcLow)
 print('address (high): %x' % plotData.pcHigh)
 print('--> %d KB\n' % ((plotData.pcHigh - plotData.pcLow) / 1024))
-
-# 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장
-if not dumpReadMode and (not args.disable_dump):
-    dumpFile = open(dumpPathName, 'wb')
-    plotData.saveDump(dumpFile)
-    print('Plot data saved in %s' % dumpPathName)
 
 if args.cumulative:
     print()
