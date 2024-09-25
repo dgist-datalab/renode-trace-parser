@@ -50,10 +50,12 @@ args = parser.parse_args()
 #modelName = 'mobilenet'
 
 modelName = 'fc_basic'
-batchSize = 128
+batchSize = 1
 
 logFileName = ''
 headerFileName = ''
+readelfFileName = ''
+funcTraceFileName = ''
 
 if args.model_name is not None:
     modelName = args.model_name
@@ -66,35 +68,36 @@ if args.batch_size is not None:
 if modelName == 'fc_basic':
     if batchSize == 1:
         logFileName = 'fc_basic_20240909_171650_batch1'
-        headerFileName = 'fc_basic_emitc_static_batch1_headers'
     elif batchSize == 4:
         logFileName = 'fc_basic_20240909_171747_batch4'
-        headerFileName = 'fc_basic_emitc_static_batch4_headers'
     elif batchSize == 8:
         logFileName = 'fc_basic_20240909_172026_batch8'
-        headerFileName = 'fc_basic_emitc_static_batch8_headers'
     elif batchSize == 16:
         logFileName = 'fc_basic_20240909_172133_batch16'
-        headerFileName = 'fc_basic_emitc_static_batch16_headers'
     elif batchSize == 32:
         logFileName = 'fc_basic_20240909_172400_batch32'
-        headerFileName = 'fc_basic_emitc_static_batch32_headers'
     elif batchSize == 128:
         logFileName = 'fc_basic_20240909_172615_batch128'
-        headerFileName = 'fc_basic_emitc_static_batch128_headers'
     elif batchSize == 512:
         logFileName = 'fc_basic_20240911_144402_batch512'
-        headerFileName = 'fc_basic_emitc_static_batch512_headers'
     else:
         print('E: %s, batch=%d is not available' % (modelName, batchSize))
         exit(1)
+    headerFileName = 'fc_basic_emitc_static_batch%d_headers' % batchSize
+    readelfFileName = 'fc_basic_emitc_static_batch%d_readelf' % batchSize
+    funcTraceFileName = 'fc_basic_%d' % batchSize
+
 elif modelName == 'ecg_small':
     if args.without_custom:
         logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
         headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
+        readelfFileName = ''
+        funcTraceFileName = ''
     else:
         logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
         headerFileName = 'ecg_small_fp32_emitc_static_headers'
+        readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
+        funcTraceFileName = 'ecg_small'
 
 # TODO:
 # Add Human-readable MNIST and MobileNet traces
@@ -150,8 +153,6 @@ def loadSectionTable(filename, secTbl):
         entry.fileOff = int(tokens[5], 16)
         entry.align = tokens[6]
         secTbl.append(entry)
-        # if args.verbose:
-        #     entry.examine()
     headerFile.close()
     if args.verbose:
         examineSectionTable(secTbl)
@@ -159,9 +160,15 @@ def loadSectionTable(filename, secTbl):
 
 def examineSectionTable(secTbl):
     print('Sections:')
-    print('Idx Name                          Size      VMA       LMA       File off  Algn')
+    print('Idx Name                           Size      VMA       LMA       File off  Algn')
     for entry in secTbl:
         entry.examine()
+
+def getSectionName(secTbl, addr):
+    for s in secTbl:
+        if addr >= s.vma and addr < s.vma + s.size:
+            return s.name
+    return None
 
 class SectionStatTableEntry:
     def __init__(self):
@@ -236,12 +243,6 @@ class SectionStatTable:
 #             continue
 #         accTbl[s.name] = 0
 
-def getSectionName(secTbl, addr):
-    for s in secTbl:
-        if addr >= s.vma and addr < s.vma + s.size:
-            return s.name
-    return None
-
 # def putSectionStat(accTbl, addr):
 #     name = getSectionName(addr)
 #     if name is None:
@@ -265,11 +266,11 @@ class SymbolTableEntry:
         self.ndx = ''
         self.name = ''
     
-    def examine(self, abb=False):
+    def examine(self, abb=False, endl='\n'):
         if abb:
-            print(f'{self.num:4d}\t{self.value:08x}\t{self.size:4d}\t{self.type:-6s}\t{self.name}')
+            print(f'{self.num:4d} {self.value:08x}  {self.size:5d}  {self.type:6}  {self.name:64}', end=endl)
         else:
-            print(f'{self.num:4d}\t{self.value:08x}\t{self.size:4d}\t{self.type:-6s}\t{self.bind}\t{self.vis}\t{self.ndx}\t{self.name}')
+            print(f'{self.num:4d} {self.value:08x}  {self.size:5d}  {self.type:6}  {self.bind:6}  {self.vis:7}  {self.ndx:3}  {self.name:64}', end=endl)
 
 def loadSymbolTable(filename, symTbl):
     fpath = READELF_PATH + filename + '.dump'
@@ -311,8 +312,19 @@ def loadSymbolTable(filename, symTbl):
     print('Symbol Table has successfully constructed')
         
 # filter example: 'FUNC', 'OBJECT', 'FILE', 'NOTYPE', 'SECTION'
+#    Num:    Value  Size Type    Bind   Vis      Ndx Name
+
+def displaySymbolTableColumns(abb=False, endl='\n'):
+    if abb:
+        print('Num: Value     Size  Type    Name', end=endl)
+        # print(f'{self.num:4d} {self.value:08x}  {self.size:4d}  {self.type:6}  {self.name:64}', end=endl)
+    else:
+        print('Num: Value     Size  Type    Bind    Vis      Ndx  Name', end=endl)
+        #print(f'{self.num:4d} {self.value:08x}  {self.size:4d}  {self.type:6}  {self.bind:6}  {self.vis:7}  {self.ndx:3}  {self.name:64}', end=endl)
+
 def examineSymbolTable(symTbl, filter=None):
     entryCnt = 0
+    displaySymbolTableColumns()
     for e in symTbl:
         if filter is not None:
             if e.type == filter:
@@ -322,6 +334,48 @@ def examineSymbolTable(symTbl, filter=None):
             e.examine()
             entryCnt += 1
     print(f'>> Total {entryCnt} items\n')
+
+class ObjectTableEntry:
+    def __init__(self):
+        self.num = 0
+        self.value = 0
+        self.size = 0
+        self.name = ''
+        self.section = ''
+
+    def examine(self, endl='\n'):
+        print(f'{self.num:4d} {self.value:08x}  {self.size:5d}  {self.name:64}  {self.section}', end=endl)
+
+def loadObjectTable(secTbl, symTbl, objTbl):
+    entryCnt = 0
+    for e in symTbl:
+        if e.type == 'OBJECT':
+            entry = ObjectTableEntry()
+            entry.num = e.num
+            entry.value = e.value
+            entry.size = e.size
+            entry.name = e.name
+            entry.section = getSectionName(secTbl, e.value)
+            if entry.section is None:
+                print(f'E: symbol {entry.name} does not have a section name')
+            objTbl.append(entry)
+            #entry.examine()
+            entryCnt += 1
+    print(f'ObjectTable has successfully constructed: total {entryCnt} items')
+
+def examineObjectTable(objTbl):
+    print('Num: Value      Size  Name' + (' ' * 62) + 'Section')
+    for e in objTbl:
+        e.examine()
+    
+def getObjectName(objTbl, addr):
+    for e in objTbl:
+        if addr >= e.value and addr < e.value + e.size:
+            return e.name # 섹션 이름이랑 튜플로 묶어서 반환하는 방법도 있을 듯
+    return None
+
+class ObjectStatTableEntry:
+    pass
 
 def loadFunctionTrace(filename):
     fpath = FUNC_TRACE_PATH + filename + '.log'
