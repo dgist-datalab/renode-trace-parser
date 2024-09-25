@@ -11,6 +11,10 @@ import time
 DL_TRACE_SIZE_COMPACT_MEM = 13
 DL_TRACE_SIZE_COMPACT_ARITH = 14
 
+HEADER_PATH = 'header/'
+READELF_PATH = 'readelf-sym/'
+FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function/'
+
 ## Initialize argparse ==============================================
 parser = argparse.ArgumentParser()
 
@@ -116,10 +120,11 @@ class SectionTableEntry:
         self.aligh = 0
     
     def examine(self):
-        print(f'idx: {self.idx}, {self.name}, size: {self.size:08x}, vma: {self.vma:08x}, lma: {self.lma:08x}, fileOff: {self.fileOff:08x}, align: {self.align}')
+        #print(f'idx: {self.idx}, {self.name}, size: {self.size:08x}, vma: {self.vma:08x}, lma: {self.lma:08x}, fileOff: {self.fileOff:08x}, align: {self.align}')
+        print(f'{self.idx:3d} {self.name:28s}  {self.size:08x}  {self.vma:08x}  {self.lma:08x}  {self.fileOff:08x}  {self.align}')
 
 def loadSectionTable(filename, secTbl):
-    fpath = 'header/' + filename + '.dump'
+    fpath = HEADER_PATH + filename + '.dump'
     print(f'Load from {fpath}...')
     if os.path.isfile(fpath):
         headerFile = open(fpath, 'r', encoding='utf-8')
@@ -145,10 +150,18 @@ def loadSectionTable(filename, secTbl):
         entry.fileOff = int(tokens[5], 16)
         entry.align = tokens[6]
         secTbl.append(entry)
-        if args.verbose:
-            entry.examine()
+        # if args.verbose:
+        #     entry.examine()
     headerFile.close()
+    if args.verbose:
+        examineSectionTable(secTbl)
     print('Section Table has successfully constructed')
+
+def examineSectionTable(secTbl):
+    print('Sections:')
+    print('Idx Name                          Size      VMA       LMA       File off  Algn')
+    for entry in secTbl:
+        entry.examine()
 
 class SectionStatTableEntry:
     def __init__(self):
@@ -240,6 +253,108 @@ def getSectionName(secTbl, addr):
 # def displaySectionStat(accTbl):
 #     for k, v in accTbl.items():
 #         print('%-30s %d' % (k, v))
+
+class SymbolTableEntry:
+    def __init__(self):
+        self.num = 0
+        self.value = 0
+        self.size = 0
+        self.type = ''
+        self.bind = ''
+        self.vis = ''
+        self.ndx = ''
+        self.name = ''
+    
+    def examine(self, abb=False):
+        if abb:
+            print(f'{self.num:4d}\t{self.value:08x}\t{self.size:4d}\t{self.type:-6s}\t{self.name}')
+        else:
+            print(f'{self.num:4d}\t{self.value:08x}\t{self.size:4d}\t{self.type:-6s}\t{self.bind}\t{self.vis}\t{self.ndx}\t{self.name}')
+
+def loadSymbolTable(filename, symTbl):
+    fpath = READELF_PATH + filename + '.dump'
+    print(f'Load from {fpath}...')
+    if os.path.isfile(fpath):
+        readelfFile = open(fpath, 'r', encoding='utf-8')
+    else:
+        print(f'E: file {fpath} does not exist')
+        exit(1)
+
+    # 데이터 이전의 행들은 읽어서 무시
+    for line in readelfFile:
+        if 'Num:' in line:
+            break
+    
+    for line in readelfFile:
+        tokens = line.split()
+        entry = SymbolTableEntry()
+        if not tokens[0][:-1].isnumeric():
+            print('Warning: %s is not numeric' % tokens[0][:-1])
+            continue
+        entry.num = int(tokens[0][:-1])
+        entry.value = int(tokens[1], 16)
+        entry.size = int(tokens[2])
+        entry.type = tokens[3]
+        entry.bind = tokens[4]
+        entry.vis = tokens[5]
+        entry.ndx = tokens[6]
+        if len(tokens) < 8:
+            entry.name = ''
+        else:
+            entry.name = tokens[7]
+        symTbl.append(entry)
+
+        # if entry.type == 'OBJECT':
+        #     entry.examine()
+
+    readelfFile.close()
+    print('Symbol Table has successfully constructed')
+        
+# filter example: 'FUNC', 'OBJECT', 'FILE', 'NOTYPE', 'SECTION'
+def examineSymbolTable(symTbl, filter=None):
+    entryCnt = 0
+    for e in symTbl:
+        if filter is not None:
+            if e.type == filter:
+                e.examine()
+                entryCnt += 1
+        else:
+            e.examine()
+            entryCnt += 1
+    print(f'>> Total {entryCnt} items\n')
+
+def loadFunctionTrace(filename):
+    fpath = FUNC_TRACE_PATH + filename + '.log'
+    print(f'Load from {fpath}...')
+    if os.path.isfile(fpath):
+        funcTraceFile = open(fpath, 'r', encoding='utf-8')
+    else:
+        print(f'E: file {fpath} does not exist')
+        exit(1)
+
+    scnt = 0 # short
+    lcnt = 0 # long
+    ecnt = 0 # entry
+    for line in funcTraceFile:
+        if 'function' in line:
+            tokens = line.split()
+            # 
+            if len(tokens) > 8:
+                #print(tokens)
+                if 'entry' in tokens[6]:
+                    print(f'{tokens[5]} at {tokens[8]} {tokens[6]}')
+                    ecnt += 1
+                lcnt += 1
+            else:
+                #print(tokens)
+                # print(f'> {tokens[5]} at {tokens[7]}')
+                scnt += 1
+
+        if ('dr.begin' in line) or ('dr.end' in line):
+            tokens = line.split()
+            print(tokens)
+    print(f'scnt: {scnt}, lcnt: {lcnt}, ecnt: {ecnt}')
+    funcTraceFile.close()
 
 class DLPlotData:
     def __init__(self):
