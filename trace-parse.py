@@ -393,7 +393,8 @@ class ObjectStatTable:
     def put(self, objTbl, optype, dtype, addr):
         name = getObjectName(objTbl, addr)
         if name is None:
-            print('ObjectStatTable.put: data in %08x is not an object (in %s)' % (addr, getSectionName(sectionTable, addr)))
+            if args.verbose:
+                print('ObjectStatTable.put: %08x not found in ObjectTable (section: %s)' % (addr, getSectionName(sectionTable, addr)))
             return
         if optype == 0: # load
             if dtype == 0: # int
@@ -852,20 +853,21 @@ NON_DR_STAT_TABLE_NAME = 'host'
 globalSST = SectionStatTable(sectionTable)
 globalSST.name = 'global'
 localSST = []
-initSSTEntry = StatTableEntry()
-initSSTEntry.name = NON_DR_STAT_TABLE_NAME + '#0'
-#localSST.append(initSSTEntry)
+initSST = SectionStatTable(sectionTable)
+initSST.name = NON_DR_STAT_TABLE_NAME + '#0'
+localSST.append(initSST)
 
 # ObjectStatTables (OSTs)
 globalOST = ObjectStatTable(objectTable)
 globalOST.name = 'global'
 localOST = []
-initOSTEntry = StatTableEntry()
-initOSTEntry.name = NON_DR_STAT_TABLE_NAME + '#0'
-#localOST.append(initOSTEntry)
+initOST = ObjectStatTable(objectTable)
+initOST.name = NON_DR_STAT_TABLE_NAME + '#0'
+localOST.append(initOST)
 
 # Custom instruction data
 curRegion = 0               # dispatch region을 포함, 현재 영역의 인덱스; 처음엔 0번으로 시작한다
+curHostRegion = 0           # dispatch region 바깥 영역의 인덱스; 프로그램 흐름상 0번으로 시작한다
 curDispatchRegion = -1      # 현재 dispatch region의 인덱스; 첫 DR 진입 시 0번으로 시작한다
 onDispatchRegion = False
 
@@ -1177,6 +1179,7 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
 
                     elif funct3 == 1: #dr.end
                         curRegion += 1
+                        curHostRegion += 1
                         print(f'Dispatch region #{curDispatchRegion} end')
                         onDispatchRegion = False
             else: # parsing error
@@ -1191,17 +1194,26 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 if opType == 0 or opType == 1: # load/store
                     globalSST.put(sectionTable, opType, dataType, addr)
                     globalOST.put(objectTable, opType, dataType, addr)
-                    if onDispatchRegion:
-                        localSST[curDispatchRegion].put(sectionTable, opType, dataType, addr)
-                        localOST[curDispatchRegion].put(objectTable, opType, dataType, addr)
+                    # if onDispatchRegion:
+                    #     localSST[curDispatchRegion].put(sectionTable, opType, dataType, addr)
+                    #     localOST[curDispatchRegion].put(objectTable, opType, dataType, addr)
+                    localSST[curRegion].put(sectionTable, opType, dataType, addr)
+                    localOST[curRegion].put(objectTable, opType, dataType, addr)
                 elif opType == 3: # custom
                     #globalSectionAccessTable
-                    if opc == 0 and funct3 == 0: # dr.begin
+                    if opc == 0 and (funct3 == 0 or funct3 == 1): # dr.begin or dr.end
+                        stName = ''
+                        if onDispatchRegion:
+                            #stName = DR_STAT_TABLE_NAME + ('#%d' % curRegion)
+                            stName = DR_STAT_TABLE_NAME + ('#%d' % curDispatchRegion)
+                        else:
+                            #stName = NON_DR_STAT_TABLE_NAME + ('#%d' % curRegion)
+                            stName = NON_DR_STAT_TABLE_NAME + ('#%d' % curHostRegion)
                         sst = SectionStatTable(sectionTable)
-                        sst.name = DR_STAT_TABLE_NAME + ('#%d' % curDispatchRegion)
+                        sst.name = stName
                         localSST.append(sst)
                         ost = ObjectStatTable(objectTable)
-                        ost.name = DR_STAT_TABLE_NAME + ('#%d' % curDispatchRegion)
+                        ost.name = stName
                         localOST.append(ost)
 
 
@@ -1274,12 +1286,14 @@ if args.enable_section_stat:
     for i, sst in enumerate(localSST):
         #print(f'Dispatch region #{i}' + ('=' * 80))
         sst.examine(True)
+        print()
     print()
     print('## ObjectStatTables: ##')
     globalOST.examine()
     print()
     for i, ost in enumerate(localOST):
         ost.examine(True)
+        print()
     print()
 
 ## 그래프 출력 ========================================================
