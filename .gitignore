@@ -7,3 +7,4 @@ header/
 *.txt
 *.py
 !trace-parse.py
+*.swp
