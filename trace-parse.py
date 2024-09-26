@@ -11,8 +11,8 @@ import time
 DL_TRACE_SIZE_COMPACT_MEM = 13
 DL_TRACE_SIZE_COMPACT_ARITH = 14
 
-HEADER_PATH = 'header/'
-READELF_PATH = 'readelf-sym/'
+HEADER_PATH = '/home/euntae/tmp/elf-dumps/headers/'
+READELF_PATH = '/home/euntae/tmp/elf-dumps/readelf-sym/'
 FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function/'
 
 ## Initialize argparse ==============================================
@@ -26,7 +26,7 @@ parser.add_argument('--save-figure', action='store_true', help='Save figures as 
 parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
 parser.add_argument('--verbose', action='store_true')
-parser.add_argument('--disable-dump', action='store_true', help='Disable plot dump save/load')
+parser.add_argument('--enable-dump', action='store_true', help='Enable plot dump save/load')
 parser.add_argument('--enable-section-stat', action='store_true')
 parser.add_argument('--model-name', action='store', help='Specify target model name')
 parser.add_argument('--batch-size', action='store', help='Specify batch size')
@@ -170,7 +170,8 @@ def getSectionName(secTbl, addr):
             return s.name
     return None
 
-class SectionStatTableEntry:
+# SectionStatTableEntry -> StatTableEntry
+class StatTableEntry:
     def __init__(self):
         #self.secName = ''
         self.loadInt = 0
@@ -187,13 +188,19 @@ class SectionStatTableEntry:
         print(f'{self.loadInt:6d} {self.loadUint:6d} {self.loadFP:6d} {self.loadVec:6d}', end=' | ')
         print(f'{self.storeInt:6d} {self.storeUint:6d} {self.storeFP:6d} {self.storeVec:6d}')
 
+    def isNonZero(self):
+        if self.loadInt != 0 or self.loadUint != 0 or self.loadFP != 0 or self.loadVec != 0 or self.storeInt != 0 or self.storeUint != 0 or self.storeFP != 0 or self.storeVec != 0:
+            return True
+        return False
+
 class SectionStatTable:
     def __init__(self, secTbl):
         self.tbl = {}
+        self.name = ''
         for s in secTbl:
             if s.vma == 0:
                 continue
-            self.tbl[s.name] = SectionStatTableEntry()
+            self.tbl[s.name] = StatTableEntry()
             #self.tbl[s.name].secName = s.name
 
     # optype: load/store/arith/custom
@@ -230,12 +237,14 @@ class SectionStatTable:
             print('SectionStatTable.put: %d is illegal operation type' % optype)
             return
 
-    def examine(self):
+    def examine(self, nonZero=False):
+        print(f'{self.name}:')
         print('%-30s %-27s | %-27s' % (' ', 'load', 'store'))
         print('%-30s %-6s %-6s %-6s %-6s | %-6s %-6s %-6s %-6s' % ('section', 'int', 'uint', 'float', 'vector', 'int', 'uint', 'float', 'vector'))
         for k, v in self.tbl.items():
-            print('%-30s' % k, end=' ')
-            v.examine()
+            if not nonZero or (nonZero and v.isNonZero()):
+                print('%-30s' % k, end=' ')
+                v.examine()
 
 # def initSectionStat(accTbl):
 #     for s in sectionTable:
@@ -374,8 +383,52 @@ def getObjectName(objTbl, addr):
             return e.name # 섹션 이름이랑 튜플로 묶어서 반환하는 방법도 있을 듯
     return None
 
-class ObjectStatTableEntry:
-    pass
+class ObjectStatTable:
+    def __init__(self, objTbl):
+        self.tbl = {}
+        self.name = {}
+        for e in objTbl:
+            self.tbl[e.name] = StatTableEntry()
+
+    def put(self, objTbl, optype, dtype, addr):
+        name = getObjectName(objTbl, addr)
+        if name is None:
+            print('ObjectStatTable.put: data in %08x is not an object (in %s)' % (addr, getSectionName(sectionTable, addr)))
+            return
+        if optype == 0: # load
+            if dtype == 0: # int
+                self.tbl[name].loadInt += 1
+            elif dtype == 1: # uint
+                self.tbl[name].loadUint += 1
+            elif dtype == 2: # float
+                self.tbl[name].loadFP += 1
+            elif dtype == 3: # vector
+                self.tbl[name].loadVec += 1
+            else:
+                print('ObjectStatTable.put: %d is illegal data type' % dtype)
+        elif optype == 1: # store
+            if dtype == 0: # int
+                self.tbl[name].storeInt += 1
+            elif dtype == 1: # uint
+                self.tbl[name].storeUint += 1
+            elif dtype == 2: # float
+                self.tbl[name].storeFP += 1
+            elif dtype == 3: # vector
+                self.tbl[name].storeVec += 1
+            else:
+                print('ObjectStatTable.put: %d is illegal data type' % dtype)
+        else:
+            print('ObjectStatTable.put: %d is illegal operation type' % optype)
+            return
+
+    def examine(self, nonZero=False):
+        print(f'{self.name}:')
+        print('%-58s %-27s | %-27s' % (' ', 'load', 'store'))
+        print('%-58s %-6s %-6s %-6s %-6s | %-6s %-6s %-6s %-6s' % ('object', 'int', 'uint', 'float', 'vector', 'int', 'uint', 'float', 'vector'))
+        for k, v in self.tbl.items():
+            if not nonZero or (nonZero and v.isNonZero()):
+                print('%-58s' % k, end=' ')
+                v.examine()
 
 def loadFunctionTrace(filename):
     fpath = FUNC_TRACE_PATH + filename + '.log'
@@ -780,12 +833,41 @@ def plotCumul():
     axs1.yaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
 
 
-## Load Section Table from file =====================================
+## Load tables  =====================================================
 sectionTable = []
-loadSectionTable(headerFileName, sectionTable)
+symbolTable = []
+objectTable = []
 
+loadSectionTable(headerFileName, sectionTable)
+loadSymbolTable(readelfFileName, symbolTable)
+loadObjectTable(sectionTable, symbolTable, objectTable)
+examineSectionTable(sectionTable)
+examineSymbolTable(symbolTable)
+examineObjectTable(objectTable)
+
+DR_STAT_TABLE_NAME = 'dispatch_region'
+NON_DR_STAT_TABLE_NAME = 'host'
+
+# SectionStatTables (SSTs)
 globalSST = SectionStatTable(sectionTable)
+globalSST.name = 'global'
 localSST = []
+initSSTEntry = StatTableEntry()
+initSSTEntry.name = NON_DR_STAT_TABLE_NAME + '#0'
+#localSST.append(initSSTEntry)
+
+# ObjectStatTables (OSTs)
+globalOST = ObjectStatTable(objectTable)
+globalOST.name = 'global'
+localOST = []
+initOSTEntry = StatTableEntry()
+initOSTEntry.name = NON_DR_STAT_TABLE_NAME + '#0'
+#localOST.append(initOSTEntry)
+
+# Custom instruction data
+curRegion = 0               # dispatch region을 포함, 현재 영역의 인덱스; 처음엔 0번으로 시작한다
+curDispatchRegion = -1      # 현재 dispatch region의 인덱스; 첫 DR 진입 시 0번으로 시작한다
+onDispatchRegion = False
 
 print()
 
@@ -813,7 +895,7 @@ dumpPathName = 'dump/dump_%s.pkl' % logFileName
 dumpReadMode = False
 dumpFile = None
 
-if os.path.isfile(dumpPathName) and (not args.disable_dump):
+if os.path.isfile(dumpPathName) and args.enable_dump:
     print('Dump file %s is detected' % dumpPathName)
     dumpFile = open(dumpPathName, 'rb')
     dumpReadMode = True
@@ -887,10 +969,6 @@ storeCntTotal = 0
 arithCntTotal = 0
 
 lastInstCtr = 0
-
-# Custom instruction data
-curDispatchRegion = -1
-onDispatchRegion = False
 
 if dumpReadMode:
     plotData = pickle.load(dumpFile)
@@ -1079,6 +1157,8 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 if plotData.pcHigh < addr:
                     plotData.pcHigh = addr
             elif opType == 3: # custom/unknown
+                # region index나 dr.begin, dr.end 제어 정보는 여기에서 처리할 것
+                # 실제 StatTable entry 삽입 등의 연산은 enable_section_stat 부분에서 처리
                 # TODO: custom instruction의 경우 opclass에 따라 세분화할 것
                 # unknown은 무시할 수 있다
                 # if opclass & 0b11100000:
@@ -1090,11 +1170,13 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 #print('[%d] custom-%d opclass=%02x funct3=%x pc=%#x ' % (instCtr, opc, opclass, funct3, addr))
                 if opc == 0:
                     if funct3 == 0: # dr.begin
+                        curRegion += 1
                         curDispatchRegion += 1
                         print(f'Dispatch region #{curDispatchRegion} begin')
                         onDispatchRegion = True
 
                     elif funct3 == 1: #dr.end
+                        curRegion += 1
                         print(f'Dispatch region #{curDispatchRegion} end')
                         onDispatchRegion = False
             else: # parsing error
@@ -1102,16 +1184,25 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
                 exit(1)
             
+            # TODO: enable_section_stat에서 enable_stat_table로 이름 변경
+            # localSST[cusDispatchRegion]을 curRegion으로 대체할 것
+            # 식별은 sst.name 속성으로
             if args.enable_section_stat:
                 if opType == 0 or opType == 1: # load/store
                     globalSST.put(sectionTable, opType, dataType, addr)
+                    globalOST.put(objectTable, opType, dataType, addr)
                     if onDispatchRegion:
                         localSST[curDispatchRegion].put(sectionTable, opType, dataType, addr)
+                        localOST[curDispatchRegion].put(objectTable, opType, dataType, addr)
                 elif opType == 3: # custom
                     #globalSectionAccessTable
-                    if opc ==0 and funct3 == 0: # dr.begin
+                    if opc == 0 and funct3 == 0: # dr.begin
                         sst = SectionStatTable(sectionTable)
+                        sst.name = DR_STAT_TABLE_NAME + ('#%d' % curDispatchRegion)
                         localSST.append(sst)
+                        ost = ObjectStatTable(objectTable)
+                        ost.name = DR_STAT_TABLE_NAME + ('#%d' % curDispatchRegion)
+                        localOST.append(ost)
 
 
             ## Update segment boundary
@@ -1157,7 +1248,7 @@ print('address (high): %x' % plotData.pcHigh)
 print('--> %d KB\n' % ((plotData.pcHigh - plotData.pcLow) / 1024))
 
 # 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장
-if not dumpReadMode and (not args.disable_dump):
+if not dumpReadMode and args.enable_dump:
     dumpFile = open(dumpPathName, 'wb')
     plotData.saveDump(dumpFile)
     print('Plot data saved in %s' % dumpPathName)
@@ -1177,13 +1268,18 @@ if args.cumulative:
 
 ## enable-section-stat 옵션이 활성화되어 있는 경우 관련 통계 데이터 출력 =====
 if args.enable_section_stat:
-    print('## Global section access statistics ##')
+    print('## SectionStatTables: ##')
     globalSST.examine()
     print()
-    print('## Local section access statistics ##')
     for i, sst in enumerate(localSST):
-        print(f'Dispatch region #{i}' + ('=' * 80))
-        sst.examine()
+        #print(f'Dispatch region #{i}' + ('=' * 80))
+        sst.examine(True)
+    print()
+    print('## ObjectStatTables: ##')
+    globalOST.examine()
+    print()
+    for i, ost in enumerate(localOST):
+        ost.examine(True)
     print()
 
 ## 그래프 출력 ========================================================
