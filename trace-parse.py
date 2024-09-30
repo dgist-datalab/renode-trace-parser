@@ -449,6 +449,15 @@ class FunctionStatTable:
             print(f'{k}: {v.count}')
         print()
 
+    def examineSequence(self, filter=None):
+        print(f'{self.name}:')
+        for fn in self.seq:
+            if filter is None:
+                print(fn)
+            elif filter in fn:
+                print(fn)
+        print(f'--> Total {len(self.seq)} functions are called')
+
 def loadFunctionTrace(filename):
     fpath = FUNC_TRACE_PATH + filename + '.log'
     print(f'Load from {fpath}...')
@@ -482,6 +491,10 @@ def loadFunctionTrace(filename):
                 if 'entry' in tokens[6]: # 함수의 entry인 경우에만 필터링
                     name = tokens[5]
                     addr = tokens[8]
+
+                    globalFST.seq.append(name)
+                    localFST[curRegion].seq.append(name)
+
                     if name in globalFST.tbl:
                         globalFST.tbl[name].count += 1
                     else:
@@ -489,21 +502,6 @@ def loadFunctionTrace(filename):
                         globalFST.tbl[name].addr = addr
                         globalFST.tbl[name].count = 1
 
-                    # if len(localFST) < curRegion + 1: # 현재 region에 대한 StatTable이 없는 경우
-                    #     stEntry = FunctionStatTable()
-                    #     stEntry.name = stName
-                    #     stEntry.tbl[name] = FunctionStatTableEntry()
-                    #     stEntry.tbl[name].addr = addr
-                    #     stEntry.tbl[name].count = 1
-                    #     localFST.append(stEntry)
-                    #     #print(f'localFST[{curRegion}]: {stName} appended')
-                    # else:
-                    #     if name in localFST[curRegion].tbl:
-                    #         localFST[curRegion].tbl[name].count += 1
-                    #     else: # 현재 region에 대한 StatTable은 형성되어 있지만, 테이블에 해당 함수명이 없는 경우
-                    #         localFST[curRegion].tbl[name] = FunctionStatTableEntry()
-                    #         localFST[curRegion].tbl[name].addr = addr
-                    #         localFST[curRegion].tbl[name].count = 1
                     if name in localFST[curRegion].tbl:
                         localFST[curRegion].tbl[name].count += 1
                     else: # 현재 region에 대한 StatTable은 형성되어 있지만, 테이블에 해당 함수명이 없는 경우
@@ -548,6 +546,21 @@ def loadFunctionTrace(filename):
     print('[Local FunctionStatTable]')
     for fst in localFST:
         fst.examine()
+    print()
+    print('[Global function call sequence] (filtered by main_dispatch_)')
+    globalFST.examineSequence('main_dispatch_')
+    print()
+    print('[Local function call sequence] (filtered by main_dispatch_)')
+    for fst in localFST:
+        fst.examineSequence('main_dispatch_')
+    print()
+    print()
+    print('[Global function call sequence]')
+    globalFST.examineSequence()
+    print()
+    print('[Local function call sequence]')
+    for fst in localFST:
+        fst.examineSequence()
 
 class DLPlotData:
     def __init__(self):
