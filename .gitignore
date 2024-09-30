@@ -8,3 +8,4 @@ header/
 *.py
 !trace-parse.py
 *.swp
+StatTableTest

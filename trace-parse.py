@@ -431,6 +431,24 @@ class ObjectStatTable:
                 print('%-58s' % k, end=' ')
                 v.examine()
 
+class FunctionStatTableEntry:
+    def __init__(self):
+        #self.name = ''
+        self.addr = 0
+        self.count = 0
+    
+class FunctionStatTable:
+    def __init__(self):
+        self.tbl = {}
+        self.name = ''
+        self.seq = []
+
+    def examine(self):
+        print(f'{self.name}:')
+        for k, v in self.tbl.items():
+            print(f'{k}: {v.count}')
+        print()
+
 def loadFunctionTrace(filename):
     fpath = FUNC_TRACE_PATH + filename + '.log'
     print(f'Load from {fpath}...')
@@ -440,29 +458,96 @@ def loadFunctionTrace(filename):
         print(f'E: file {fpath} does not exist')
         exit(1)
 
+    curRegion = 0
+    curHostRegion = 0
+    curDispatchRegion = -1
+    onDispatchRegion = False
+    stName = ''
+
+    globalFST = FunctionStatTable() # global FunctionStatTable
+    globalFST.name = 'global'
+    localFST = []  # local FunctionStatTable
+    localFST.append(FunctionStatTable())
+    localFST[0].name = NON_DR_STAT_TABLE_NAME + '#0'
+
     scnt = 0 # short
     lcnt = 0 # long
     ecnt = 0 # entry
+
     for line in funcTraceFile:
         if 'function' in line:
             tokens = line.split()
-            # 
             if len(tokens) > 8:
                 #print(tokens)
-                if 'entry' in tokens[6]:
-                    print(f'{tokens[5]} at {tokens[8]} {tokens[6]}')
+                if 'entry' in tokens[6]: # 함수의 entry인 경우에만 필터링
+                    name = tokens[5]
+                    addr = tokens[8]
+                    if name in globalFST.tbl:
+                        globalFST.tbl[name].count += 1
+                    else:
+                        globalFST.tbl[name] = FunctionStatTableEntry()
+                        globalFST.tbl[name].addr = addr
+                        globalFST.tbl[name].count = 1
+
+                    # if len(localFST) < curRegion + 1: # 현재 region에 대한 StatTable이 없는 경우
+                    #     stEntry = FunctionStatTable()
+                    #     stEntry.name = stName
+                    #     stEntry.tbl[name] = FunctionStatTableEntry()
+                    #     stEntry.tbl[name].addr = addr
+                    #     stEntry.tbl[name].count = 1
+                    #     localFST.append(stEntry)
+                    #     #print(f'localFST[{curRegion}]: {stName} appended')
+                    # else:
+                    #     if name in localFST[curRegion].tbl:
+                    #         localFST[curRegion].tbl[name].count += 1
+                    #     else: # 현재 region에 대한 StatTable은 형성되어 있지만, 테이블에 해당 함수명이 없는 경우
+                    #         localFST[curRegion].tbl[name] = FunctionStatTableEntry()
+                    #         localFST[curRegion].tbl[name].addr = addr
+                    #         localFST[curRegion].tbl[name].count = 1
+                    if name in localFST[curRegion].tbl:
+                        localFST[curRegion].tbl[name].count += 1
+                    else: # 현재 region에 대한 StatTable은 형성되어 있지만, 테이블에 해당 함수명이 없는 경우
+                        localFST[curRegion].tbl[name] = FunctionStatTableEntry()
+                        localFST[curRegion].tbl[name].addr = addr
+                        localFST[curRegion].tbl[name].count = 1
+
+                    if args.verbose:
+                        print(f'{name} at {addr} {tokens[6]}')
                     ecnt += 1
                 lcnt += 1
-            else:
+            else: # 함수 내부에서의 분기문 포함
                 #print(tokens)
                 # print(f'> {tokens[5]} at {tokens[7]}')
                 scnt += 1
-
+        if 'dr.begin' in line:
+            #curRegion += 1
+            curDispatchRegion += 1
+            onDispatchRegion = True
+            stName = DR_STAT_TABLE_NAME + ('#%d' % curDispatchRegion)
+        if 'dr.end' in line:
+            #curRegion += 1
+            curHostRegion += 1
+            onDispatchRegion = False
+            stName = NON_DR_STAT_TABLE_NAME + ('#%d' % curHostRegion)
         if ('dr.begin' in line) or ('dr.end' in line):
-            tokens = line.split()
-            print(tokens)
-    print(f'scnt: {scnt}, lcnt: {lcnt}, ecnt: {ecnt}')
+            curRegion += 1
+            stEntry = FunctionStatTable()
+            stEntry.name = stName
+            stEntry.tbl[name] = FunctionStatTableEntry()
+            stEntry.tbl[name].addr = addr
+            stEntry.tbl[name].count = 1
+            localFST.append(stEntry)
+            print(f'>> {stName} begin (curRegion={curRegion})')
+    print(f'scnt: {scnt}, lcnt: {lcnt}, total: {scnt + lcnt}')
+    print(f'entry: {ecnt}')
     funcTraceFile.close()
+    
+    print('[Global FunctionStatTable]')
+    globalFST.examine()
+    print()
+    print('[Local FunctionStatTable]')
+    for fst in localFST:
+        fst.examine()
 
 class DLPlotData:
     def __init__(self):
@@ -1295,6 +1380,10 @@ if args.enable_section_stat:
         ost.examine(True)
         print()
     print()
+
+## function call trace ==============================================
+loadFunctionTrace(funcTraceFileName)
+
 
 ## 그래프 출력 ========================================================
 # Initialize plot
