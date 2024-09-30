@@ -533,9 +533,9 @@ def loadFunctionTrace(filename):
             curRegion += 1
             stEntry = FunctionStatTable()
             stEntry.name = stName
-            stEntry.tbl[name] = FunctionStatTableEntry()
-            stEntry.tbl[name].addr = addr
-            stEntry.tbl[name].count = 1
+            # stEntry.tbl[name] = FunctionStatTableEntry()
+            # stEntry.tbl[name].addr = addr
+            # stEntry.tbl[name].count = 1
             localFST.append(stEntry)
             print(f'>> {stName} begin (curRegion={curRegion})')
     print(f'scnt: {scnt}, lcnt: {lcnt}, total: {scnt + lcnt}')
