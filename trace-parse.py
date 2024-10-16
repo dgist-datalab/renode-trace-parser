@@ -27,7 +27,7 @@ parser.add_argument('--plot-ldst', action='store_true', help='Enable plotting lo
 parser.add_argument('--plot-arith', action='store_true', help='Enable plotting arithmetic instruction traces')
 parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
-parser.add_argument('--enable-section-stat', action='store_true', default=True)
+parser.add_argument('--enable-stat-table', action='store_true', default=False, help='Enable construct StatTables (default=False)')
 parser.add_argument('--model-name', action='store', default=modelName, help=f'Specify target model name (default={modelName})')
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
@@ -464,10 +464,16 @@ def getObjectName(objTbl, addr):
             return e.name # 섹션 이름이랑 튜플로 묶어서 반환하는 방법도 있을 듯
     return None
 
+def getObjectAndSectionName(objTbl, addr):
+    for e in objTbl:
+        if addr >= e.value and addr < e.value + e.size:
+            return ( e.name, e.section )
+    return None
+
 class ObjectStatTable:
     def __init__(self, objTbl):
         self.tbl = {}
-        self.name = {}
+        self.name = ''
         for e in objTbl:
             self.tbl[e.name] = StatTableEntry()
 
@@ -508,7 +514,7 @@ class ObjectStatTable:
         print('%-58s %-27s | %-27s' % (' ', 'load', 'store'))
         print('%-58s %-6s %-6s %-6s %-6s | %-6s %-6s %-6s %-6s' % ('object', 'int', 'uint', 'float', 'vector', 'int', 'uint', 'float', 'vector'))
         for k, v in self.tbl.items():
-            if not nonZero or (nonZero and v.isNonZero()):
+            if not nonZero or (nonZero and v.isNonZero()): # non-zero인 원소만 출력한다
                 print('%-58s' % k, end=' ')
                 v.examine()
 
@@ -642,6 +648,40 @@ def loadFunctionTrace(filename):
     print('[Local function call sequence]')
     for fst in localFST:
         fst.examineSequence()
+
+OP_TYPE_STR = ( 'load', 'store', 'arith', 'custom' )
+DATA_TYPE_STR = ( 'sint', 'uint', 'float', 'vector' )
+OPERAND_SIZE = ( 8, 16, 32, 64, 128 )
+
+class AccessSequenceTableEntry:
+    def __init__(self):
+        #self.instCtr = 0 # 이걸 인덱스로 쓰는건 어떨까?
+        self.addr = 0
+        self.opType = 0
+        self.dataType = 0
+        self.operandSize = 0
+        self.section = ''
+        self.object = ''
+    def examine(self):
+        #print(f'{self.instCtr:8} {self.addr:8x} {OP_TYPE_STR[self.opType]} {DATA_TYPE_STR[self.dataType]} {OPERAND_SIZE[self.operandSize]} {self.section} {self.object}')
+        print(f'{self.addr:8x} {OP_TYPE_STR[self.opType]} {DATA_TYPE_STR[self.dataType]} {OPERAND_SIZE[self.operandSize]} {self.section} {self.object}')
+
+class AccessSequenceTable:
+    def __init__(self):
+        self.tbl = {}
+        self.name = ''
+
+    def put(self, objTbl, instCtr, addr, opType, dataType, operandSize):
+        self.tbl[instCtr].addr = addr
+        self.tbl[instCtr].opType = opType
+        self.tbl[instCtr].dataType = dataType
+        self.tbl[instCtr].operandSize = operandSize
+        self.tbl[instCtr].object, self.tbl[instCtr].section = getObjectAndSectionName(objTbl, addr)
+
+    def examine(self):
+        for k, v in self.tbl.items():
+            print(f'{k:8}', end=' ')
+            v.examine()
 
 class DLPlotData:
     def __init__(self):
@@ -828,8 +868,10 @@ def initPlotFormat(ax, pltype='ldst', model_name='ecg_small'):
     #print(f'total instruction count: {plotData.totalInstCnt}')
     multipleLocatorX = getIntegerRound(multipleLocatorX, 'dec')
     multipleLocatorY = getIntegerRound(multipleLocatorY, 'hex')
-    if args.verbose:
-        print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
+    # if args.verbose:
+    #     print(f'multipleLocator: {multipleLocatorX}, {multipleLocatorY: #x}')
+    print(f'multipleLocator: X={multipleLocatorX}, Y={multipleLocatorY: #x}')
+    print(f'DMEM length ({model_name}): {getDMemLength(model_name)}')
 
     ax.grid(False)
     ax.set_xlabel('# instruction')
@@ -874,7 +916,7 @@ def plotLdstSep():
     ## 4개 창 생성 및 개별 그래프 출력
     fig1, axs1 = plt.subplots(num=1)
     fig1.canvas.manager.set_window_title('Memory access trace')
-    initPlotFormat(axs1)
+    initPlotFormat(axs1, model_name=modelName)
     plotSectionBoundary(axs1)
     axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
     axs1.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
@@ -886,7 +928,7 @@ def plotLdstSep():
 
     fig2, axs2 = plt.subplots(num=2)
     fig2.canvas.manager.set_window_title('Memory access trace')
-    initPlotFormat(axs2)
+    initPlotFormat(axs2, model_name=modelName)
     plotSectionBoundary(axs2)
     axs2.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
     axs2.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
@@ -894,7 +936,7 @@ def plotLdstSep():
 
     fig3, axs3 = plt.subplots(num=3)
     fig3.canvas.manager.set_window_title('Memory access trace')
-    initPlotFormat(axs3)
+    initPlotFormat(axs3, model_name=modelName)
     plotSectionBoundary(axs3)
     axs3.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
     axs3.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
@@ -902,7 +944,7 @@ def plotLdstSep():
 
     fig4, axs4 = plt.subplots(num=4)
     fig4.canvas.manager.set_window_title('Memory access trace')
-    initPlotFormat(axs4)
+    initPlotFormat(axs4, model_name=modelName)
     plotSectionBoundary(axs4)
     axs4.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
     axs4.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
@@ -918,7 +960,7 @@ def plotLdst():
 
     # 그래프 서식 일괄 적용
     for ax in axs1.flat:
-        initPlotFormat(ax)
+        initPlotFormat(ax, model_name=modelName)
         plotSectionBoundary(ax)
     
     # 개별 그래프 출력
@@ -947,7 +989,7 @@ def plotArith():
     fig2, axs2 = plt.subplots(2, 2, num='Arithmetic Operations')
     # 그래프 서식 일괄 적용
     for ax in axs2.flat:
-        initPlotFormat(ax, pltype='arith')
+        initPlotFormat(ax, pltype='arith', model_name=modelName)
 
     # 개별 그래프 출력
     axs2[0, 0].scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
@@ -966,7 +1008,7 @@ def plotArith():
 
 def plotArithSep():
     fig1, axs1 = plt.subplots(num=5)
-    initPlotFormat(axs1, pltype='arith')
+    initPlotFormat(axs1, pltype='arith', model_name=modelName)
     fig1.canvas.manager.set_window_title('Arithmetic operations trace')
     axs1.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
     axs1.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
@@ -974,19 +1016,19 @@ def plotArithSep():
     axs1.set_title('Arithmetic operations trace (all)')
 
     fig2, axs2 = plt.subplots(num=6)
-    initPlotFormat(axs2, pltype='arith')
+    initPlotFormat(axs2, pltype='arith', model_name=modelName)
     fig2.canvas.manager.set_window_title('Arithmetic operations trace')
     axs2.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
     axs2.set_title('Integer arithmetic only')
 
     fig3, axs3 = plt.subplots(num=7)
-    initPlotFormat(axs3, pltype='arith')
+    initPlotFormat(axs3, pltype='arith', model_name=modelName)
     fig3.canvas.manager.set_window_title('Arithmetic operations trace')
     axs3.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
     axs3.set_title('FP arithmetic only')
 
     fig4, axs4 = plt.subplots(num=8)
-    initPlotFormat(axs4, pltype='arith')
+    initPlotFormat(axs4, pltype='arith', model_name=modelName)
     fig4.canvas.manager.set_window_title('Arithmetic operations trace')
     axs4.scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
     axs4.set_title('Vector arithmetic only')
@@ -1375,7 +1417,7 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             # TODO: enable_section_stat에서 enable_stat_table로 이름 변경
             # localSST[cusDispatchRegion]을 curRegion으로 대체할 것
             # 식별은 sst.name 속성으로
-            if args.enable_section_stat:
+            if args.enable_stat_table:
                 if opType == 0 or opType == 1: # load/store
                     globalSST.put(sectionTable, opType, dataType, addr)
                     globalOST.put(objectTable, opType, dataType, addr)
@@ -1464,7 +1506,7 @@ if args.cumulative:
     print('len(plotData.instCtr): %d' % len(plotData.instCtr))
 
 ## enable-section-stat 옵션이 활성화되어 있는 경우 관련 통계 데이터 출력 =====
-if args.enable_section_stat:
+if args.enable_stat_table:
     print('## SectionStatTables: ##')
     globalSST.examine()
     print()
@@ -1482,7 +1524,7 @@ if args.enable_section_stat:
     print()
 
 ## function call trace ==============================================
-loadFunctionTrace(funcTraceFileName)
+# loadFunctionTrace(funcTraceFileName)
 
 
 ## 그래프 출력 ========================================================
