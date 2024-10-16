@@ -11,9 +11,13 @@ import time
 DL_TRACE_SIZE_COMPACT_MEM = 13
 DL_TRACE_SIZE_COMPACT_ARITH = 14
 
-HEADER_PATH = '/home/euntae/tmp/elf-dumps/headers/'
-READELF_PATH = '/home/euntae/tmp/elf-dumps/readelf-sym/'
-FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function/'
+LOCAL_LOG_PATH = 'log'
+GLOBAL_LOG_PATH = '/home/euntae/tmp/renode-log'
+FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function'
+
+modelName = 'fc_triple_medium'
+batchSize = 1
+modelConfig = ''
 
 ## Initialize argparse ==============================================
 parser = argparse.ArgumentParser()
@@ -22,17 +26,19 @@ parser.add_argument('--all', action='store_true', help='Enable all options')
 parser.add_argument('--plot-ldst', action='store_true', help='Enable plotting load/store instruction traces')
 parser.add_argument('--plot-arith', action='store_true', help='Enable plotting arithmetic instruction traces')
 parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
-parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
-parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
-parser.add_argument('--verbose', action='store_true')
-parser.add_argument('--enable-dump', action='store_true', help='Enable plot dump save/load')
-parser.add_argument('--enable-section-stat', action='store_true')
-parser.add_argument('--model-name', action='store', help='Specify target model name')
-parser.add_argument('--batch-size', action='store', help='Specify batch size')
+parser.add_argument('--enable-section-stat', action='store_true', default=True)
+parser.add_argument('--model-name', action='store', default=modelName, help=f'Specify target model name (default={modelName})')
+#parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
+parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--disable-plot', action='store_true')
 parser.add_argument('--without-custom', action='store_true')
 parser.add_argument('--disable-plot-section-boundary', action='store_true')
+parser.add_argument('--verbose', action='store_true')
+
+parser.add_argument('--enable-dump', action='store_true', help='Enable plot dump save/load')
+parser.add_argument('--cumulative', action='store_true', help='CDF mode')
+parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 args = parser.parse_args()
 
 ## 로그 파일명 설정
@@ -49,19 +55,22 @@ args = parser.parse_args()
 #modelName = 'ecg_small'
 #modelName = 'mobilenet'
 
-modelName = 'fc_basic'
-batchSize = 1
-
+logFilePath = LOCAL_LOG_PATH
+memConfig = 'default'
+#memConfigSuffix = '_default' # default='default'
 logFileName = ''
 headerFileName = ''
 readelfFileName = ''
 funcTraceFileName = ''
 
-if args.model_name is not None:
-    modelName = args.model_name
+# if args.model_name is not None:
+#     modelName = args.model_name
 
-if args.batch_size is not None:
-    batchSize = int(args.batch_size)
+# if args.batch_size is not None:
+#     batchSize = int(args.batch_size)
+
+modelName = args.model_name
+batchSize = args.batch_size
 
 #print(f'Model name: {modelName}')
 
@@ -87,17 +96,86 @@ if modelName == 'fc_basic':
     readelfFileName = 'fc_basic_emitc_static_batch%d_readelf' % batchSize
     funcTraceFileName = 'fc_basic_%d' % batchSize
 
+## FC triple
+# FC triple small, medium은 default, config1에서 실행한 결과를 동시에 가지고 있지만, 
+# 분석의 편의상 default만을 사용한다
+elif 'fc_triple' in modelName:
+    print('HELLO!')
+    if modelName == 'fc_triple_small':
+        logFileName = 'fc_triple_small_default_20241014_193642'
+        modelConfig = 'small'
+    elif modelName == 'fc_triple_medium':
+        logFileName = 'fc_triple_medium_default_20241014_194008'
+        modelConfig = 'medium'
+    elif modelName == 'fc_triple_large':
+        logFileName = 'fc_triple_large_config1_20241014_194627'
+        modelConfig = 'large'
+        memConfig = 'config1'
+    elif modelName == 'fc_triple_xl':
+        logFileName = 'fc_triple_xl_config1_20241014_165044'
+        modelConfig = 'xl'
+        memConfig = 'config1'
+    elif modelName == 'fc_triple_xxl':
+        logFileName = 'fc_triple_xxl_config1_20241014_202340'
+        modelConfig = 'xxl'
+        memConfig = 'config1'
+    elif modelName == 'fc_triple_huge':
+        logFileName = ''
+        modelConfig = 'huge'
+        memConfig = ''
+        print('E: FC triple huge is not supported yet:(')
+        exit(1)
+    else:
+        print(f'E: model {modelName} is not available')
+        exit(1)
+
+    #print(f'memConfig: {memConfig}')
+    # if memConfig != '': # 빈 문자열인 경우 기본값인 _default
+    #     memConfigSuffix = '_' + memConfig
+
+    headerFileName = f'fc_triple_{modelConfig}_emitc_static_headers'
+    readelfFileName = f'fc_triple_{modelConfig}_emitc_static_readelf'
+    funcTraceFileName = f'{modelName}_{memConfig}'
+
 elif modelName == 'ecg_small':
     if args.without_custom:
         logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
         headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
         readelfFileName = ''
         funcTraceFileName = ''
+        print('E: ECG small without custom instruction is not supported yet:(')
+        exit(1)
     else:
         logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
         headerFileName = 'ecg_small_fp32_emitc_static_headers'
         readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
         funcTraceFileName = 'ecg_small'
+
+# trace log 파일 경로 결정
+if 'fc_triple' in modelName:
+    logFilePath = GLOBAL_LOG_PATH
+
+logFileExt = '.bin'
+if args.human_readable:
+    logFileExt = '.txt'
+
+pathName = logFilePath + '/' + logFileName + logFileExt
+
+# ELF header 및 symbol table 파일 경로 결정
+HEADER_PATH = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/headers'
+READELF_PATH = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/readelf-sym'
+
+## Test =============================================================
+print(f'Model name: {modelName}')
+print(f'Model config: {modelConfig}')
+print(f'memConfig: "{memConfig}"')
+print(f'Trace log file path: {pathName}')
+print(f'headers file path: {HEADER_PATH}/{headerFileName}')
+print(f'readelf file path: {READELF_PATH}/{readelfFileName}')
+print(f'function call trace file path: {FUNC_TRACE_PATH}/{funcTraceFileName}')
+#exit(0)
+## ==================================================================
+
 
 # TODO:
 # Add Human-readable MNIST and MobileNet traces
@@ -127,7 +205,7 @@ class SectionTableEntry:
         print(f'{self.idx:3d} {self.name:28s}  {self.size:08x}  {self.vma:08x}  {self.lma:08x}  {self.fileOff:08x}  {self.align}')
 
 def loadSectionTable(filename, secTbl):
-    fpath = HEADER_PATH + filename + '.dump'
+    fpath = HEADER_PATH + '/' + filename + '.dump'
     print(f'Load from {fpath}...')
     if os.path.isfile(fpath):
         headerFile = open(fpath, 'r', encoding='utf-8')
@@ -282,7 +360,7 @@ class SymbolTableEntry:
             print(f'{self.num:4d} {self.value:08x}  {self.size:5d}  {self.type:6}  {self.bind:6}  {self.vis:7}  {self.ndx:3}  {self.name:64}', end=endl)
 
 def loadSymbolTable(filename, symTbl):
-    fpath = READELF_PATH + filename + '.dump'
+    fpath = READELF_PATH + '/' + filename + '.dump'
     print(f'Load from {fpath}...')
     if os.path.isfile(fpath):
         readelfFile = open(fpath, 'r', encoding='utf-8')
@@ -303,7 +381,10 @@ def loadSymbolTable(filename, symTbl):
             continue
         entry.num = int(tokens[0][:-1])
         entry.value = int(tokens[1], 16)
-        entry.size = int(tokens[2])
+        if '0x' in tokens[2]:
+            entry.size = int(tokens[2], 16)
+        else:
+            entry.size = int(tokens[2])
         entry.type = tokens[3]
         entry.bind = tokens[4]
         entry.vis = tokens[5]
@@ -459,7 +540,7 @@ class FunctionStatTable:
         print(f'--> Total {len(self.seq)} functions are called')
 
 def loadFunctionTrace(filename):
-    fpath = FUNC_TRACE_PATH + filename + '.log'
+    fpath = FUNC_TRACE_PATH + '/' + filename + '.log'
     print(f'Load from {fpath}...')
     if os.path.isfile(fpath):
         funcTraceFile = open(fpath, 'r', encoding='utf-8')
@@ -652,11 +733,15 @@ def to_sampled(data, pos):
 def getIMemLength(model_name='ecg_small'):
     if model_name == 'mobilebert':
         return 128 * 1024 * 1024 # 128M
+    elif model_name == 'fc_triple_large' or model_name == 'fc_triple_xl' or model_name == 'fc_triple_xxl':
+        return 128 * 1024 * 1024 # 128M
     else: # default (1M)
         return 1024 * 1024
 
 def getDMemLength(model_name='ecg_small'):
     if model_name == 'mobilebert':
+        return 256 * 1024 * 1024    # 256M
+    elif model_name == 'fc_triple_large' or model_name == 'fc_triple_xl' or model_name == 'fc_triple_xxl':
         return 256 * 1024 * 1024    # 256M
     else: # default (16M)
         return 16 * 1024 * 1024     # 16M
@@ -674,6 +759,10 @@ def getStackSize(model_name='ecg_small'):
         return 32 * 1024 * 1024 # 32M
     elif model_name == 'fc_basic':
         return 200 * 1024 # 200K
+    elif model_name == 'fc_triple_small' or model_name == 'fc_triple_medium':
+        return 200 * 1024 # 200K
+    elif model_name == 'fc_triple_large' or model_name == 'fc_triple_xl' or model_name == 'fc_triple_xxl':
+        return 32 * 1024 * 1024 # 32M
     else: # default (10K)
         return 10 * 1024
 
@@ -685,6 +774,8 @@ def getIMemBaseAddress(model_name='ecg_small'):
 
 def getDMemBaseAddress(model_name='ecg_small'):
     if model_name == 'mobilebert':
+        return 0x3c000000
+    elif model_name == 'fc_triple_large' or model_name == 'fc_triple_xl' or model_name == 'fc_triple_xxl':
         return 0x3c000000
     else:
         return 0x34000000
@@ -985,10 +1076,6 @@ if not args.plot_ldst and not args.plot_arith:
 #logFileName = 'mobile_net_v1_20240703_142550'
 #logFileName = 'mnist_20240703_142344'
 
-if args.human_readable:
-    pathName = 'log/%s.txt' % logFileName
-else:
-    pathName = 'log/%s.bin' % logFileName
 logFile = None
 
 dumpPathName = 'dump/dump_%s.pkl' % logFileName
