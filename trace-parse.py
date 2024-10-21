@@ -100,7 +100,6 @@ if modelName == 'fc_basic':
 # FC triple small, medium은 default, config1에서 실행한 결과를 동시에 가지고 있지만, 
 # 분석의 편의상 default만을 사용한다
 elif 'fc_triple' in modelName:
-    print('HELLO!')
     if modelName == 'fc_triple_small':
         logFileName = 'fc_triple_small_default_20241014_193642'
         modelConfig = 'small'
@@ -664,21 +663,27 @@ class AccessSequenceTableEntry:
         self.object = ''
     def examine(self):
         #print(f'{self.instCtr:8} {self.addr:8x} {OP_TYPE_STR[self.opType]} {DATA_TYPE_STR[self.dataType]} {OPERAND_SIZE[self.operandSize]} {self.section} {self.object}')
-        print(f'{self.addr:8x} {OP_TYPE_STR[self.opType]} {DATA_TYPE_STR[self.dataType]} {OPERAND_SIZE[self.operandSize]} {self.section} {self.object}')
+        if self.object is None:
+            self.object = ''
+        print(f'{self.addr:8x} {OP_TYPE_STR[self.opType]:6} {DATA_TYPE_STR[self.dataType]:6} {OPERAND_SIZE[self.operandSize]:2} {self.section:6}  {self.object}')
 
 class AccessSequenceTable:
     def __init__(self):
         self.tbl = {}
         self.name = ''
 
-    def put(self, objTbl, instCtr, addr, opType, dataType, operandSize):
-        self.tbl[instCtr].addr = addr
-        self.tbl[instCtr].opType = opType
-        self.tbl[instCtr].dataType = dataType
-        self.tbl[instCtr].operandSize = operandSize
-        self.tbl[instCtr].object, self.tbl[instCtr].section = getObjectAndSectionName(objTbl, addr)
+    def put(self, secTbl, objTbl, instCtr, addr, opType, dataType, operandSize):
+        entry = AccessSequenceTableEntry()
+        entry.addr = addr
+        entry.opType = opType
+        entry.dataType = dataType
+        entry.operandSize = operandSize
+        entry.object = getObjectName(objTbl, addr)
+        entry.section = getSectionName(secTbl, addr)
+        self.tbl[instCtr] = entry
 
     def examine(self):
+        print(f'{self.name} (total {len(self.tbl)} accesses):')
         for k, v in self.tbl.items():
             print(f'{k:8}', end=' ')
             v.examine()
@@ -1064,6 +1069,16 @@ def plotCumul():
     axs1.yaxis.set_major_locator(ticker.MultipleLocator(1000000))
     axs1.yaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
 
+def printSepline(title=''):
+    lineLen = 128
+    prefix = '## '
+    suffix = ' ##'
+
+    if title != '':
+        title += ' '
+
+    print(prefix + title + ('=' * (lineLen - len(title))) + suffix)
+
 
 ## Load tables  =====================================================
 sectionTable = []
@@ -1095,6 +1110,12 @@ localOST = []
 initOST = ObjectStatTable(objectTable)
 initOST.name = NON_DR_STAT_TABLE_NAME + '#0'
 localOST.append(initOST)
+
+# AccessSequenceTables (ASTs)
+localAST = []
+initAST = AccessSequenceTable()
+initAST.name = NON_DR_STAT_TABLE_NAME + '#0'
+localAST.append(initAST)
 
 # Custom instruction data
 curRegion = 0               # dispatch region을 포함, 현재 영역의 인덱스; 처음엔 0번으로 시작한다
@@ -1414,9 +1435,6 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
                 exit(1)
             
-            # TODO: enable_section_stat에서 enable_stat_table로 이름 변경
-            # localSST[cusDispatchRegion]을 curRegion으로 대체할 것
-            # 식별은 sst.name 속성으로
             if args.enable_stat_table:
                 if opType == 0 or opType == 1: # load/store
                     globalSST.put(sectionTable, opType, dataType, addr)
@@ -1426,6 +1444,7 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     #     localOST[curDispatchRegion].put(objectTable, opType, dataType, addr)
                     localSST[curRegion].put(sectionTable, opType, dataType, addr)
                     localOST[curRegion].put(objectTable, opType, dataType, addr)
+                    localAST[curRegion].put(sectionTable, objectTable, instCtr, addr, opType, dataType, operandSize)
                 elif opType == 3: # custom
                     #globalSectionAccessTable
                     if opc == 0 and (funct3 == 0 or funct3 == 1): # dr.begin or dr.end
@@ -1439,9 +1458,14 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         sst = SectionStatTable(sectionTable)
                         sst.name = stName
                         localSST.append(sst)
+
                         ost = ObjectStatTable(objectTable)
                         ost.name = stName
                         localOST.append(ost)
+
+                        ast = AccessSequenceTable()
+                        ast.name = stName
+                        localAST.append(ast)
 
 
             ## Update segment boundary
@@ -1507,24 +1531,42 @@ if args.cumulative:
 
 ## enable-section-stat 옵션이 활성화되어 있는 경우 관련 통계 데이터 출력 =====
 if args.enable_stat_table:
-    print('## SectionStatTables: ##')
+    print('## SectionStatTables ##')
+    printSepline('Global SST')
     globalSST.examine()
+    printSepline()
     print()
+    printSepline('Local SST')
     for i, sst in enumerate(localSST):
         #print(f'Dispatch region #{i}' + ('=' * 80))
         sst.examine(True)
         print()
+    printSepline()
     print()
-    print('## ObjectStatTables: ##')
+    
+    print('## ObjectStatTables ##')
+    printSepline('Global OST')
     globalOST.examine()
+    printSepline()
     print()
+    printSepline('Local OST')
     for i, ost in enumerate(localOST):
         ost.examine(True)
         print()
+    printSepline()
+    print()
+    
+    print('## AccessSequenceTables ##')
+    printSepline('Local ASTs')
+    for i, ast in enumerate(localAST):
+        ast.examine()
+        print()
+    printSepline()
     print()
 
 ## function call trace ==============================================
-# loadFunctionTrace(funcTraceFileName)
+print('## FunctionStatTables ##')
+loadFunctionTrace(funcTraceFileName)
 
 
 ## 그래프 출력 ========================================================
