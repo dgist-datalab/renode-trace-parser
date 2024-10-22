@@ -35,6 +35,7 @@ parser.add_argument('--disable-plot', action='store_true')
 parser.add_argument('--without-custom', action='store_true')
 parser.add_argument('--disable-plot-section-boundary', action='store_true')
 parser.add_argument('--verbose', action='store_true')
+parser.add_argument('--ast-output', action='store', help='Dump AccessSequenceTable (AST) to specified file')
 
 parser.add_argument('--enable-dump', action='store_true', help='Enable plot dump save/load')
 parser.add_argument('--cumulative', action='store_true', help='CDF mode')
@@ -1509,6 +1510,14 @@ print('## PC    ##')
 print('address (low) : %x' % plotData.pcLow)
 print('address (high): %x' % plotData.pcHigh)
 print('--> %d KB\n' % ((plotData.pcHigh - plotData.pcLow) / 1024))
+
+# 캐시 시뮬레이터용: 생성된 AST를 파일로 덤프한다
+if args.ast_output is not None:
+    astDumpFileName = 'dump/' + args.ast_output + '.ast'
+    astDumpFile = open(astDumpFileName, 'wb')
+    pickle.dump(localAST, astDumpFile)
+    print(f'ASTs are saved to {astDumpFileName}')
+    astDumpFile.close()
 
 # 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장
 if not dumpReadMode and args.enable_dump:

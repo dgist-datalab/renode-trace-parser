@@ -4,6 +4,7 @@ import re
 #import numpy as np
 import sys
 import os.path
+import pickle
 import argparse
 import time
 
@@ -25,7 +26,8 @@ parser.add_argument('--batch-size', action='store', type=int, default=batchSize,
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 #parser.add_argument('--disable-plot-section-boundary', action='store_true')
 parser.add_argument('--verbose', action='store_true')
-parser.add_argument('--cache-size', action='store', default=100, )
+parser.add_argument('--ast-input', action='store')
+parser.add_argument('--cache-size', action='store', default=100)
 args = parser.parse_args()
 
 logFilePath = LOCAL_LOG_PATH
@@ -116,13 +118,17 @@ elif modelName == 'ecg_small':
         readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
         funcTraceFileName = 'ecg_small'
 
+astDumpFileName = ''
+if args.ast_input is not None:
+    astDumpFileName = args.ast_input
+
+astDumpFilePath = f'dump/{astDumpFileName}.ast'
+
 # trace log 파일 경로 결정
 if 'fc_triple' in modelName:
     logFilePath = GLOBAL_LOG_PATH
 
 logFileExt = '.bin'
-if args.human_readable:
-    logFileExt = '.txt'
 
 pathName = logFilePath + '/' + logFileName + logFileExt
 
@@ -141,14 +147,63 @@ print(f'function call trace file path: {FUNC_TRACE_PATH}/{funcTraceFileName}')
 #exit(0)
 ## ==================================================================
 
+OP_TYPE_STR = ( 'load', 'store', 'arith', 'custom' )
+DATA_TYPE_STR = ( 'sint', 'uint', 'float', 'vector' )
+OPERAND_SIZE = ( 8, 16, 32, 64, 128 )
+
+class AccessSequenceTableEntry:
+    def __init__(self):
+        #self.instCtr = 0 # 이걸 인덱스로 쓰는건 어떨까?
+        self.addr = 0
+        self.opType = 0
+        self.dataType = 0
+        self.operandSize = 0
+        self.section = ''
+        self.object = ''
+    def examine(self):
+        #print(f'{self.instCtr:8} {self.addr:8x} {OP_TYPE_STR[self.opType]} {DATA_TYPE_STR[self.dataType]} {OPERAND_SIZE[self.operandSize]} {self.section} {self.object}')
+        if self.object is None:
+            self.object = ''
+        print(f'{self.addr:8x} {OP_TYPE_STR[self.opType]:6} {DATA_TYPE_STR[self.dataType]:6} {OPERAND_SIZE[self.operandSize]:2} {self.section:6}  {self.object}')
+
+class AccessSequenceTable:
+    def __init__(self):
+        self.tbl = {}
+        self.name = ''
+
+    def put(self, secTbl, objTbl, instCtr, addr, opType, dataType, operandSize):
+        entry = AccessSequenceTableEntry()
+        entry.addr = addr
+        entry.opType = opType
+        entry.dataType = dataType
+        entry.operandSize = operandSize
+        entry.object = getObjectName(objTbl, addr)
+        entry.section = getSectionName(secTbl, addr)
+        self.tbl[instCtr] = entry
+
+    def examine(self):
+        print(f'{self.name} (total {len(self.tbl)} accesses):')
+        for k, v in self.tbl.items():
+            print(f'{k:8}', end=' ')
+            v.examine()
+
 ## Load tables  =====================================================
 sectionTable = []
 symbolTable = []
 objectTable = []
 
-loadSectionTable(headerFileName, sectionTable)
-loadSymbolTable(readelfFileName, symbolTable)
-loadObjectTable(sectionTable, symbolTable, objectTable)
-examineSectionTable(sectionTable)
-examineSymbolTable(symbolTable)
-examineObjectTable(objectTable)
+# loadSectionTable(headerFileName, sectionTable)
+# loadSymbolTable(readelfFileName, symbolTable)
+# loadObjectTable(sectionTable, symbolTable, objectTable)
+# examineSectionTable(sectionTable)
+# examineSymbolTable(symbolTable)
+# examineObjectTable(objectTable)
+
+if os.path.isfile(astDumpFilePath):
+    astDumpFile = open(astDumpFilePath, 'rb')
+else:
+    print(f'E: {astDumpFilePath} is not available')
+    exit(1)
+localAST = pickle.load(astDumpFile)
+
+localAST[0].examine()
