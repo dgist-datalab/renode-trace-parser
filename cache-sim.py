@@ -174,4 +174,9 @@ else:
     exit(1)
 localAST = pickle.load(astDumpFile)
 
-localAST[0].examine()
+cnt = 0
+for ast in localAST:
+    ast.examine()
+    cnt += 1
+
+print(f'--> total {cnt} entries')
