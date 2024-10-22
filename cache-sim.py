@@ -8,9 +8,11 @@ import pickle
 import argparse
 import time
 
-LOCAL_LOG_PATH = 'log'
-GLOBAL_LOG_PATH = '/home/euntae/tmp/renode-log'
-FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function'
+import renodetrace as rt
+from renodetrace import printSepline
+from renodetrace.stattable import OP_TYPE_STR
+from renodetrace.stattable import DATA_TYPE_STR
+from renodetrace.stattable import OPERAND_SIZE
 
 modelName = 'fc_triple_medium'
 batchSize = 1
@@ -30,7 +32,7 @@ parser.add_argument('--ast-input', action='store')
 parser.add_argument('--cache-size', action='store', default=100)
 args = parser.parse_args()
 
-logFilePath = LOCAL_LOG_PATH
+logFilePath = rt.LOCAL_LOG_PATH
 memConfig = 'default'
 logFileName = ''
 headerFileName = ''
@@ -126,83 +128,49 @@ astDumpFilePath = f'dump/{astDumpFileName}.ast'
 
 # trace log 파일 경로 결정
 if 'fc_triple' in modelName:
-    logFilePath = GLOBAL_LOG_PATH
+    logFilePath = rt.GLOBAL_LOG_PATH
 
 logFileExt = '.bin'
-
 pathName = logFilePath + '/' + logFileName + logFileExt
 
-# ELF header 및 symbol table 파일 경로 결정
+# ELF header 및 symbol table 파일의 실제 경로 결정
 HEADER_PATH = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/headers'
 READELF_PATH = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/readelf-sym'
 
+headerFilePath = f'{HEADER_PATH}/{headerFileName}.dump'
+readelfFilePath = f'{READELF_PATH}/{readelfFileName}.dump'
+funcTraceFilePath = f'{rt.FUNC_TRACE_PATH}/{funcTraceFileName}.log'
+
 ## Test =============================================================
-print(f'Model name: {modelName}')
-print(f'Model config: {modelConfig}')
+printSepline('File information summary')
+print(f'model name: {modelName}')
+print(f'model config: {modelConfig}')
 print(f'memConfig: "{memConfig}"')
-print(f'Trace log file path: {pathName}')
-print(f'headers file path: {HEADER_PATH}/{headerFileName}')
-print(f'readelf file path: {READELF_PATH}/{readelfFileName}')
-print(f'function call trace file path: {FUNC_TRACE_PATH}/{funcTraceFileName}')
-#exit(0)
+print(f'trace log file path: {pathName}')
+print(f'headers file path: {headerFilePath}')
+print(f'readelf file path: {readelfFilePath}')
+print(f'function call trace file path: {funcTraceFilePath}')
+print(f'AccessSequenceTable dump file path: {astDumpFilePath}')
+printSepline()
 ## ==================================================================
-
-OP_TYPE_STR = ( 'load', 'store', 'arith', 'custom' )
-DATA_TYPE_STR = ( 'sint', 'uint', 'float', 'vector' )
-OPERAND_SIZE = ( 8, 16, 32, 64, 128 )
-
-class AccessSequenceTableEntry:
-    def __init__(self):
-        #self.instCtr = 0 # 이걸 인덱스로 쓰는건 어떨까?
-        self.addr = 0
-        self.opType = 0
-        self.dataType = 0
-        self.operandSize = 0
-        self.section = ''
-        self.object = ''
-    def examine(self):
-        #print(f'{self.instCtr:8} {self.addr:8x} {OP_TYPE_STR[self.opType]} {DATA_TYPE_STR[self.dataType]} {OPERAND_SIZE[self.operandSize]} {self.section} {self.object}')
-        if self.object is None:
-            self.object = ''
-        print(f'{self.addr:8x} {OP_TYPE_STR[self.opType]:6} {DATA_TYPE_STR[self.dataType]:6} {OPERAND_SIZE[self.operandSize]:2} {self.section:6}  {self.object}')
-
-class AccessSequenceTable:
-    def __init__(self):
-        self.tbl = {}
-        self.name = ''
-
-    def put(self, secTbl, objTbl, instCtr, addr, opType, dataType, operandSize):
-        entry = AccessSequenceTableEntry()
-        entry.addr = addr
-        entry.opType = opType
-        entry.dataType = dataType
-        entry.operandSize = operandSize
-        entry.object = getObjectName(objTbl, addr)
-        entry.section = getSectionName(secTbl, addr)
-        self.tbl[instCtr] = entry
-
-    def examine(self):
-        print(f'{self.name} (total {len(self.tbl)} accesses):')
-        for k, v in self.tbl.items():
-            print(f'{k:8}', end=' ')
-            v.examine()
 
 ## Load tables  =====================================================
 sectionTable = []
 symbolTable = []
 objectTable = []
 
-# loadSectionTable(headerFileName, sectionTable)
-# loadSymbolTable(readelfFileName, symbolTable)
-# loadObjectTable(sectionTable, symbolTable, objectTable)
-# examineSectionTable(sectionTable)
-# examineSymbolTable(symbolTable)
-# examineObjectTable(objectTable)
+rt.stattable.loadSectionTable(headerFilePath, sectionTable)
+rt.stattable.loadSymbolTable(readelfFilePath, symbolTable)
+rt.stattable.loadObjectTable(sectionTable, symbolTable, objectTable)
+rt.stattable.examineSectionTable(sectionTable)
+rt.stattable.examineSymbolTable(symbolTable)
+rt.stattable.examineObjectTable(objectTable)
 
 if os.path.isfile(astDumpFilePath):
+    print(f'Open AST dump file {astDumpFilePath}...')
     astDumpFile = open(astDumpFilePath, 'rb')
 else:
-    print(f'E: {astDumpFilePath} is not available')
+    print(f'E: {astDumpFilePath} does not exist')
     exit(1)
 localAST = pickle.load(astDumpFile)
 
