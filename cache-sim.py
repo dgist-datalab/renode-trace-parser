@@ -1,12 +1,9 @@
-import re
-#import matplotlib.pyplot as plt
-#import matplotlib.ticker as ticker
-#import numpy as np
 import sys
 import os.path
 import pickle
 import argparse
 import time
+import math
 
 import renodetrace as rt
 from renodetrace import printSepline
@@ -162,9 +159,9 @@ objectTable = []
 rt.stattable.loadSectionTable(headerFilePath, sectionTable)
 rt.stattable.loadSymbolTable(readelfFilePath, symbolTable)
 rt.stattable.loadObjectTable(sectionTable, symbolTable, objectTable)
-rt.stattable.examineSectionTable(sectionTable)
-rt.stattable.examineSymbolTable(symbolTable)
-rt.stattable.examineObjectTable(objectTable)
+# rt.stattable.examineSectionTable(sectionTable)
+# rt.stattable.examineSymbolTable(symbolTable)
+# rt.stattable.examineObjectTable(objectTable)
 
 if os.path.isfile(astDumpFilePath):
     print(f'Open AST dump file {astDumpFilePath}...')
@@ -174,9 +171,68 @@ else:
     exit(1)
 localAST = pickle.load(astDumpFile)
 
-cnt = 0
-for ast in localAST:
-    ast.examine()
-    cnt += 1
+# cnt = 0
+# for ast in localAST:
+#     ast.examine()
+#     cnt += 1
 
-print(f'--> total {cnt} entries')
+print(f'>> total {len(localAST)} regions')
+
+## 캐시 설계 고려사항
+# 총 캐시 크기
+# 캐시 블록 크기: 기본 64바이트
+# 교체 정책: FIFO, LRU, 
+# read/write 정책: write-through, write-back
+
+# byte-size
+class CacheParameters:
+    def __init__(self):
+        self.totalSize = 1000
+        self.blockSize = 64
+        self.replacePolicy = 'fifo'
+        self.nsets = 0
+        self.nways = 8
+        
+class CacheLine:
+    def __init__(self):
+        self.valid = False
+        self.tag = 0
+        self.data = 0
+        self.dirty = False
+        self.count = 0
+
+    def clear(self):
+        self.valid = False
+        self.tag = 0
+        self.data = 0
+        self.dirty = False
+        self.count = 0
+
+class CacheMem:
+    def __init__(self, cacheParams):
+        self.mem = []
+
+    def clear(self): # or reset, flush?
+
+
+def getCacheIndex(addr):
+    pass
+
+cacheTotalSize = 1000
+cacheBlockSize = 64
+cacheReplacePolicy = 'fifo' # fifo, lru
+
+totalAccess = 0
+totalHit = 0
+totalMiss = 0
+hitRatio = 0.0
+
+for ast in localAST:
+    if not 'dispatch_region' in ast.name:
+        continue
+    printSepline(label=ast.name, llen=64)
+    for k, v in ast.tbl.items():
+        print(f'[{k}] {v.addr:#8x}: {v.section}')
+    printSepline(llen=64)
+
+print()

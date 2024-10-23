@@ -68,12 +68,14 @@ def getStackBaseAddress(model_name='ecg_small'):
     stackSize = getStackSize(model_name)
     return dmemBase + dmemLength - stackSize
 
-def printSepline(title=''):
-    lineLen = 128
+def printSepline(label='', llen=128):
+    lineLen = llen
     prefix = '## '
     suffix = ' ##'
 
-    if title != '':
-        title += ' '
-
-    print(prefix + title + ('=' * (lineLen - len(title))) + suffix)
+    if label != '':
+        label += ' '
+    lmult = lineLen - len(label) - len(prefix) - len(suffix)
+    if lmult < 1:
+        lmult = 1
+    print(prefix + label + ('=' * lmult) + suffix)

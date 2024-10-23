@@ -53,7 +53,7 @@ def loadSectionTable(filepath, secTbl):
     headerFile.close()
     # if args.verbose:
     #     examineSectionTable(secTbl)
-    print('Section Table has successfully constructed')
+    print(f'Section Table has successfully constructed: total {len(secTbl)} items')
 
 def examineSectionTable(secTbl):
     print('Sections:')
@@ -219,7 +219,7 @@ def loadSymbolTable(filepath, symTbl):
         #     entry.examine()
 
     readelfFile.close()
-    print('Symbol Table has successfully constructed')
+    print(f'Symbol Table has successfully constructed: total {len(symTbl)} items')
         
 # filter example: 'FUNC', 'OBJECT', 'FILE', 'NOTYPE', 'SECTION'
 #    Num:    Value  Size Type    Bind   Vis      Ndx Name
@@ -257,7 +257,7 @@ class ObjectTableEntry:
         print(f'{self.num:4d} {self.value:08x}  {self.size:5d}  {self.name:64}  {self.section}', end=endl)
 
 def loadObjectTable(secTbl, symTbl, objTbl):
-    entryCnt = 0
+    #entryCnt = 0
     for e in symTbl:
         if e.type == 'OBJECT':
             entry = ObjectTableEntry()
@@ -270,8 +270,8 @@ def loadObjectTable(secTbl, symTbl, objTbl):
                 print(f'E: symbol {entry.name} does not have a section name')
             objTbl.append(entry)
             #entry.examine()
-            entryCnt += 1
-    print(f'ObjectTable has successfully constructed: total {entryCnt} items')
+            #entryCnt += 1
+    print(f'ObjectTable has successfully constructed: total {len(objTbl)} items')
 
 def examineObjectTable(objTbl):
     print('Num: Value      Size  Name' + (' ' * 62) + 'Section')
