@@ -24,7 +24,7 @@ parser.add_argument('--model-name', action='store', default=modelName, help=f'Sp
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 #parser.add_argument('--disable-plot-section-boundary', action='store_true')
-parser.add_argument('--verbose', action='store_true')
+parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('--ast-input', action='store')
 parser.add_argument('--cache-size', action='store', default=100)
 args = parser.parse_args()
@@ -183,15 +183,6 @@ print(f'>> total {len(localAST)} regions')
 # 캐시 블록 크기: 기본 64바이트
 # 교체 정책: FIFO, LRU, 
 # read/write 정책: write-through, write-back
-
-# byte-size
-class CacheParameters:
-    def __init__(self):
-        self.totalSize = 1000
-        self.blockSize = 64
-        self.replacePolicy = 'fifo'
-        self.nsets = 0
-        self.nways = 8
         
 class CacheLine:
     def __init__(self):
@@ -200,6 +191,7 @@ class CacheLine:
         self.data = 0
         self.dirty = False
         self.count = 0
+        #print('CacheLine()', end=' ')
 
     def clear(self):
         self.valid = False
@@ -208,31 +200,161 @@ class CacheLine:
         self.dirty = False
         self.count = 0
 
+
 class CacheMem:
-    def __init__(self, cacheParams):
+    def __init__(self, totalSize=32*1024, blockSize=64, nways=8, replacePolicy='fifo'):
+        self.naccess = 0
+        self.nhit = 0
+        self.nmiss = 0
+        self.nevict = 0
+
+        self.totalSize = totalSize
+        self.blockSize = blockSize
+        self.nways = nways
+        self.replacePolicy = replacePolicy
+
+        self.nblocks = int(self.totalSize / self.blockSize)   # 캐시 블록 개수 계산
+        self.nsets = int(self.nblocks / self.nways)           # 세트 개수 계산
+        
+        print(f'CacheMem: nblocks={self.nblocks}, nways={self.nways}, nsets={self.nsets}')
+        self.blkBits = int(math.log(self.blockSize, 2))
+        self.idxBits = int(math.log(self.nsets, 2))
+        self.tagBits = 32 - self.idxBits - self.blkBits
+        self.idxMask = ((1 << self.idxBits) - 1) << self.blkBits
+        self.tagMask = ((1 << self.tagBits) - 1) << (self.blkBits + self.idxBits)
+        print(f'Address layout: tag={self.tagBits}, index={self.idxBits} block offset={self.blkBits}')
+        print(f'Tag mask: {self.tagMask:b}, Index mask: {self.idxMask:b}')
+
         self.mem = []
-
+        rows = 0
+        cols = 0
+        for _ in range(self.nsets):
+            cset = [ CacheLine() for _ in range(self.nways) ]
+            self.mem.append(cset)
+            cols = len(cset)
+            #print()
+        rows = len(self.mem)
+        print(f'--> Cache memory has successfully constructed: total {rows}x{cols} cache blocks')
+        
     def clear(self): # or reset, flush?
+        self.naccess = 0
+        self.nhit = 0
+        self.nmiss = 0
+        self.nevict = 0
 
+        entryCnt = 0
+        for s in self.mem: # set
+            for blk in s:
+                blk.clear()
+                entryCnt += 1
+        print(f'CacheMem.clear: total {entryCnt} cache blocks cleared')
+        
+    def lookup(self, addr):
+        hitFlag = False
+        self.naccess += 1
+        idx = (addr & self.idxMask) >> self.blkBits
+        tag = (addr & self.tagMask) >> (self.idxBits + self.blkBits)
+        if args.verbose:
+            print(f'addr={addr:8x}, tag={tag:x}, idx={idx:02x}(={idx:06b})')
+        for blk in self.mem[idx]:
+            if blk.valid and blk.tag == tag: # cache hit
+                self.nhit += 1
+                return True
+        
+        # cache miss
+        self.nmiss += 1
+        if args.verbose:
+            print('>> miss', end='')
+        print()
+        self.fetch(idx, tag)
+        return False
 
-def getCacheIndex(addr):
-    pass
+    # 캐시 미스 시 호출
+    def fetch(self, idx, tag):
+        evictFlag = True
+        # 현재 인덱스의 set에 가용 캐시 블럭이 존재하는지 검사
+        for blk in self.mem[idx]:
+            if not blk.valid: # 가용 블럭 존재 시 insert
+                self.examineSet(idx)
+                blk.valid = True
+                blk.tag = tag
+                evictFlag = False
+                print('>> ', end='')
+                self.examineSet(idx)
+                break
+        
+        # 가용 블럭 부재 시 evict 후에 insert 수행
+        if evictFlag:
+            self.evict(idx)
+            blk = CacheLine()
+            blk.valid = True
+            blk.tag = tag
+            self.mem[idx].append(blk)
+            self.examineSet(idx)
+            # blk.valid = True
+            # blk.tag = tag
 
-cacheTotalSize = 1000
-cacheBlockSize = 64
-cacheReplacePolicy = 'fifo' # fifo, lru
+    # idx가 가리키는 set에서 replace policy에 따라 evict할 블록을 결정
+    # evict된 위치의 캐시 블록을 반환한다
+    def evict(self, idx):
+        self.nevict += 1
+        if args.verbose:
+            print(f'Cache eviction occurred: idx={idx:02x}(={idx:06b})')
+            self.examineSet(idx)
+            print('>> ', end='')
+        
+        if self.replacePolicy == 'fifo':
+            self.mem[idx].pop(0)
+            return
+        elif self.replacePolicy == 'lru':
+            pass
+        elif self.replacePolicy == 'random':
+            pass
+        else:
+            print(f'E: {self.replacePolicy} is not available')
+            exit(1)
+        return
+
+    def getHitRatio(self):
+        pass
+
+    def getMissRatio(self):
+        pass
+
+    def examineSet(self, idx):
+        cset = self.mem[idx]
+        cnt = 0
+        print(f'set(idx={idx:02x}): ', end='')
+        for i, blk in enumerate(cset):
+            if not blk.valid:
+                continue
+            print(f'[{i}] {blk.tag:x}, ', end='')
+            cnt += 1
+        print(f'(total {cnt} available blocks)')
+            
 
 totalAccess = 0
 totalHit = 0
 totalMiss = 0
 hitRatio = 0.0
 
+# nblocks=512, nways=8, nsets=64, index bit=6 bits
+# tag=20-bit
+# replacePolicy="fifo", "lru", "random"
+#cache1 = CacheMem(totalSize=32*1024, blockSize=64, nways=8, replacePolicy='fifo')
+cache1 = CacheMem(totalSize=64*1024, blockSize=48, nways=8, replacePolicy='fifo')
+#cache1.clear()
+#exit(0)
+
 for ast in localAST:
     if not 'dispatch_region' in ast.name:
         continue
     printSepline(label=ast.name, llen=64)
     for k, v in ast.tbl.items():
-        print(f'[{k}] {v.addr:#8x}: {v.section}')
+        #print(f'[{k}] {v.addr:#8x}: {v.section}')
+        cache1.lookup(v.addr)
     printSepline(llen=64)
+    print(f'total access: {cache1.naccess}, hit: {cache1.nhit}, miss: {cache1.nmiss}, eviction: {cache1.nevict}')
+    exit(0)
 
 print()
