@@ -379,8 +379,8 @@ cache1 = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nw
 #exit(0)
 
 for ast in localAST:
-    if not 'dispatch_region' in ast.name:
-        continue
+    # if not 'dispatch_region' in ast.name:
+    #     continue
     printSepline(label=ast.name, llen=64)
     for k, v in ast.tbl.items():
         #print(f'[{k}] {v.addr:#8x}: {v.section}')

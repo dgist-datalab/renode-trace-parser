@@ -1,10 +1,10 @@
 #!/bin/bash
 
-READONLY=1
+READONLY=0
 
 OUTPUT_DIR=sim-output
-#MODEL_LIST=(ecg_small fc_triple_small fc_triple_medium) # +fc_triple_large fc_triple_xl fc_triple_xxl
-MODEL_LIST=(ecg_small)
+MODEL_LIST=(ecg_small fc_triple_small fc_triple_medium) # +fc_triple_large fc_triple_xl fc_triple_xxl
+#MODEL_LIST=(ecg_small)
 CACHE_SIZE_LIST=(16k 32k 48k 64k 128k 256k 512k 1m)
 N_WAYS_LIST=(1 2 4 8 16)
 POLICY_LIST=(fifo) # + lru random
