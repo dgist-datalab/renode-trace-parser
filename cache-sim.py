@@ -26,8 +26,34 @@ parser.add_argument('--batch-size', action='store', type=int, default=batchSize,
 #parser.add_argument('--disable-plot-section-boundary', action='store_true')
 parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('--ast-input', action='store')
-parser.add_argument('--cache-size', action='store', default=100)
+parser.add_argument('--cache-size', action='store', default='32k', help='Specify entire cache size e.g., 32k, 8M')
+parser.add_argument('--cache-block-size', action='store', type=int, default=64)
+parser.add_argument('--nways', action='store', type=int, default=8)
+parser.add_argument('--replace-policy', '-p', action='store', default='fifo')
 args = parser.parse_args()
+## ==================================================================
+
+## Process cache parameters =========================================
+arg_totalSize = args.cache_size
+arg_blockSize = args.cache_block_size
+arg_nways = args.nways
+arg_replacePolicy = args.replace_policy
+
+if arg_totalSize.isdigit():
+    arg_totalSize = int(arg_totalSize)
+elif 'k' in arg_totalSize or 'K' in arg_totalSize:
+    arg_totalSize = int(arg_totalSize[0:-1]) * 1024
+elif 'm' in arg_totalSize or 'M' in arg_totalSize:
+    arg_totalSize = int(arg_totalSize[0:-1]) * 1024 * 1024
+else:
+    print(f'E: {arg_totalSize} is not valid value')
+
+print(f'total cache size: {arg_totalSize}')
+print(f'cache block size: {arg_blockSize}')
+print(f'number of ways: {arg_nways}')
+print(f'replacement policy: {arg_replacePolicy}\n')
+
+## ==================================================================
 
 logFilePath = rt.LOCAL_LOG_PATH
 memConfig = 'default'
@@ -104,18 +130,18 @@ elif 'fc_triple' in modelName:
     funcTraceFileName = f'{modelName}_{memConfig}'
 
 elif modelName == 'ecg_small':
-    if args.without_custom:
-        logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
-        headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
-        readelfFileName = ''
-        funcTraceFileName = ''
-        print('E: ECG small without custom instruction is not supported yet:(')
-        exit(1)
-    else:
-        logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
-        headerFileName = 'ecg_small_fp32_emitc_static_headers'
-        readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
-        funcTraceFileName = 'ecg_small'
+    # if args.without_custom:
+    #     logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
+    #     headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
+    #     readelfFileName = ''
+    #     funcTraceFileName = ''
+    #     print('E: ECG small without custom instruction is not supported yet:(')
+    #     exit(1)
+    # else:
+    logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
+    headerFileName = 'ecg_small_fp32_emitc_static_headers'
+    readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
+    funcTraceFileName = 'ecg_small'
 
 astDumpFileName = ''
 if args.ast_input is not None:
@@ -289,10 +315,15 @@ class CacheMem:
             blk = CacheLine()
             blk.valid = True
             blk.tag = tag
-            self.mem[idx].append(blk)
-            self.examineSet(idx)
-            # blk.valid = True
-            # blk.tag = tag
+            if self.replacePolicy == 'fifo':
+                self.mem[idx].append(blk)
+                self.examineSet(idx)
+            elif self.replacePolicy == 'lru':
+                pass
+            elif self.replacePolicy == 'random':
+                pass
+            else:
+                print(f'E: {self.replacePolicy} is not available')
 
     # idx가 가리키는 set에서 replace policy에 따라 evict할 블록을 결정
     # evict된 위치의 캐시 블록을 반환한다
@@ -305,7 +336,7 @@ class CacheMem:
         
         if self.replacePolicy == 'fifo':
             self.mem[idx].pop(0)
-            return
+            return 0
         elif self.replacePolicy == 'lru':
             pass
         elif self.replacePolicy == 'random':
@@ -342,7 +373,7 @@ hitRatio = 0.0
 # tag=20-bit
 # replacePolicy="fifo", "lru", "random"
 #cache1 = CacheMem(totalSize=32*1024, blockSize=64, nways=8, replacePolicy='fifo')
-cache1 = CacheMem(totalSize=64*1024, blockSize=48, nways=8, replacePolicy='fifo')
+cache1 = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
 #cache1.clear()
 #exit(0)
 
