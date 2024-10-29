@@ -26,17 +26,17 @@ parser.add_argument('--separate', action='store_true', help='All subplots are re
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
 parser.add_argument('--enable-stat-table', action='store_true', default=False, help='Enable construct StatTables (default=False)')
 parser.add_argument('--model-name', action='store', default=modelName, help=f'Specify target model name (default={modelName})')
-#parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--disable-plot', action='store_true')
-parser.add_argument('--without-custom', action='store_true')
 parser.add_argument('--disable-plot-section-boundary', action='store_true')
 parser.add_argument('--verbose', action='store_true')
 parser.add_argument('--ast-output', action='store', help='Dump AccessSequenceTable (AST) to specified file')
 
+#parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
+#parser.add_argument('--without-custom', action='store_true')
 parser.add_argument('--enable-dump', action='store_true', help='Enable plot dump save/load')
 parser.add_argument('--cumulative', action='store_true', help='CDF mode')
-parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
+#parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 args = parser.parse_args()
 
 ## 로그 파일명 설정
@@ -135,18 +135,21 @@ elif 'fc_triple' in modelName:
     funcTraceFileName = f'{modelName}_{memConfig}'
 
 elif modelName == 'ecg_small':
-    if args.without_custom:
-        logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
-        headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
-        readelfFileName = ''
-        funcTraceFileName = ''
-        print('E: ECG small without custom instruction is not supported yet:(')
-        exit(1)
-    else:
-        logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
-        headerFileName = 'ecg_small_fp32_emitc_static_headers'
-        readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
-        funcTraceFileName = 'ecg_small'
+    # if args.without_custom:
+    #     logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
+    #     headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
+    #     readelfFileName = ''
+    #     funcTraceFileName = ''
+    #     print('E: ECG small without custom instruction is not supported yet:(')
+    #     exit(1)
+    # else:
+    logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
+    headerFileName = 'ecg_small_fp32_emitc_static_headers'
+    readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
+    funcTraceFileName = 'ecg_small'
+
+else:
+    print(f'The model {modelName} is not supported')
 
 # trace log 파일 경로 결정
 if 'fc_triple' in modelName:

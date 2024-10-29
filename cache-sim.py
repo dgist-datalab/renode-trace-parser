@@ -189,6 +189,7 @@ rt.stattable.loadObjectTable(sectionTable, symbolTable, objectTable)
 # rt.stattable.examineSymbolTable(symbolTable)
 # rt.stattable.examineObjectTable(objectTable)
 
+astDumpFile = None
 if os.path.isfile(astDumpFilePath):
     print(f'Open AST dump file {astDumpFilePath}...')
     astDumpFile = open(astDumpFilePath, 'rb')
