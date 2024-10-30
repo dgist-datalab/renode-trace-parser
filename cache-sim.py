@@ -4,6 +4,7 @@ import pickle
 import argparse
 import time
 import math
+import random
 
 import renodetrace as rt
 from renodetrace import printSepline
@@ -229,7 +230,7 @@ class CacheLine:
 
 
 class CacheMem:
-    def __init__(self, totalSize=32*1024, blockSize=64, nways=8, replacePolicy='fifo'):
+    def __init__(self, totalSize=32*1024, blockSize=64, nways=8, replacePolicy='fifo', targetSection=None):
         self.naccess = 0
         self.nhit = 0
         self.nmiss = 0
@@ -243,7 +244,6 @@ class CacheMem:
         self.nblocks = int(self.totalSize / self.blockSize)   # 캐시 블록 개수 계산
         self.nsets = int(self.nblocks / self.nways)           # 세트 개수 계산
         
-        print(f'CacheMem: nblocks={self.nblocks}, nways={self.nways}, nsets={self.nsets}')
         self.blkBits = int(math.log(self.blockSize, 2))
         self.idxBits = int(math.log(self.nsets, 2))
         self.tagBits = 32 - self.idxBits - self.blkBits
@@ -262,19 +262,22 @@ class CacheMem:
             #print()
         rows = len(self.mem)
         print(f'--> Cache memory has successfully constructed: total {rows}x{cols} cache blocks')
-        
-    def clear(self): # or reset, flush?
+    
+    def resetAccessStat(self):
         self.naccess = 0
         self.nhit = 0
         self.nmiss = 0
         self.nevict = 0
 
+    def reset(self): # or reset, flush?
+        self.resetAccessStat()
         entryCnt = 0
         for s in self.mem: # set
             for blk in s:
                 blk.clear()
                 entryCnt += 1
-        print(f'CacheMem.clear: total {entryCnt} cache blocks cleared')
+        if args.verbose:
+            print(f'CacheMem.clear: total {entryCnt} cache blocks cleared')
         
     def lookup(self, addr):
         hitFlag = False
@@ -292,7 +295,7 @@ class CacheMem:
         self.nmiss += 1
         if args.verbose:
             print('>> miss', end='')
-        print()
+            print()
         self.fetch(idx, tag)
         return False
 
@@ -302,29 +305,37 @@ class CacheMem:
         # 현재 인덱스의 set에 가용 캐시 블럭이 존재하는지 검사
         for blk in self.mem[idx]:
             if not blk.valid: # 가용 블럭 존재 시 insert
-                self.examineSet(idx)
+                if args.verbose:
+                    self.examineSet(idx)
                 blk.valid = True
                 blk.tag = tag
                 evictFlag = False
-                print('>> ', end='')
-                self.examineSet(idx)
+                if args.verbose:
+                    print('>> ', end='')
+                    self.examineSet(idx)
                 break
         
         # 가용 블럭 부재 시 evict 후에 insert 수행
         if evictFlag:
-            self.evict(idx)
-            blk = CacheLine()
-            blk.valid = True
-            blk.tag = tag
+            replaceIdx = self.evict(idx) # 교체할 블록의 인덱스 결정
+            #print(f'replaceIdx: {replaceIdx}')
+
             if self.replacePolicy == 'fifo':
-                self.mem[idx].append(blk)
-                self.examineSet(idx)
+                blk = CacheLine()
+                blk.valid = True
+                blk.tag = tag
+                self.mem[idx].append(blk)    
             elif self.replacePolicy == 'lru':
                 pass
             elif self.replacePolicy == 'random':
-                pass
+                #print(f'type of self.mem[idx]: {type(self.mem[idx])}')
+                (self.mem[idx])[replaceIdx].tag = tag
             else:
                 print(f'E: {self.replacePolicy} is not available')
+                exit(1)
+            
+            if args.verbose:
+                self.examineSet(idx)
 
     # idx가 가리키는 set에서 replace policy에 따라 evict할 블록을 결정
     # evict된 위치의 캐시 블록을 반환한다
@@ -333,60 +344,131 @@ class CacheMem:
         if args.verbose:
             print(f'Cache eviction occurred: idx={idx:02x}(={idx:06b})')
             self.examineSet(idx)
-            print('>> ', end='')
+            if args.verbose:
+                print('>> ', end='')
         
         if self.replacePolicy == 'fifo':
             self.mem[idx].pop(0)
-            return 0
+            return self.nways - 1
+            #return 0
         elif self.replacePolicy == 'lru':
             pass
         elif self.replacePolicy == 'random':
-            pass
+            return random.randint(0, self.nways - 1)
         else:
             print(f'E: {self.replacePolicy} is not available')
             exit(1)
         return
 
-    def getHitRatio(self):
-        pass
-
-    def getMissRatio(self):
-        pass
-
     def examineSet(self, idx):
         cset = self.mem[idx]
         cnt = 0
-        print(f'set(idx={idx:02x}): ', end='')
+        if args.verbose:
+            print(f'set(idx={idx:02x}): ', end='')
         for i, blk in enumerate(cset):
             if not blk.valid:
                 continue
-            print(f'[{i}] {blk.tag:x}, ', end='')
+            if args.verbose:
+                print(f'[{i}] {blk.tag:x}, ', end='')
             cnt += 1
-        print(f'(total {cnt} available blocks)')
+        if args.verbose:
+            print(f'(total {cnt} available blocks)')
+
+    def examineCacheInfo(self):
+        print(f'Cache configuration: total size={self.totalSize} bytes, block size={self.blockSize} bytes, #blocks={self.nblocks}, #ways={self.nways}, #sets={self.nsets}, replace policy={self.replacePolicy}')
+    
+    def examineAccessInfo(self):
+        print(f'total access: {self.naccess}, hit: {self.nhit}, miss: {self.nmiss}, eviction: {self.nevict} --> hit ratio: {(self.nhit / self.naccess):.4f}, miss ratio: {(self.nmiss / self.naccess):.4f}')
             
+def examineCachesAccessInfo(**caches):
+    naccess = 0
+    nhit = 0
+    nmiss = 0
+    nevict = 0
+    for name, cache in caches.items():
+        naccess += cache.naccess
+        nhit += cache.nhit
+        nmiss += cache.nmiss
+        nevict += cache.nevict
+        print(f'[{name}] total access: {cache.naccess}, hit: {cache.nhit}, miss: {cache.nmiss}, eviction: {cache.nevict} --> hit ratio: {(cache.nhit / cache.naccess):.4f}, miss ratio: {(cache.nmiss / cache.naccess):.4f})')
 
-totalAccess = 0
-totalHit = 0
-totalMiss = 0
-hitRatio = 0.0
+    print(f'--> total access: {naccess}, hit: {nhit}, miss: {nmiss}, eviction: {nevict} --> hit ratio: {(nhit / naccess):.4f}, miss ratio: {(nmiss / naccess):.4f}')
 
-# nblocks=512, nways=8, nsets=64, index bit=6 bits
-# tag=20-bit
-# replacePolicy="fifo", "lru", "random"
-#cache1 = CacheMem(totalSize=32*1024, blockSize=64, nways=8, replacePolicy='fifo')
-cache1 = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
-#cache1.clear()
-#exit(0)
+## Cache simulation =================================================
+# cacheTest = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
+# printSepline(label='Functional test')
+# for ast in localAST:
+#     printSepline(label=ast.name)
+#     lookupCnt = 0
+#     for k, v in ast.tbl.items():
+#         cacheTest.lookup(v.addr)
+#         lookupCnt += 1
+#         if lookupCnt > 30:
+#             break
+#     cacheTest.examineAccessInfo()
+#     printSepline()
+# exit(0)
 
+heapCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy='fifo')
+stackCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy='fifo')
+dataCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy='fifo')
+
+printSepline(label='Per section cache, per region test')
+print('Not implemented yet...')
+printSepline()
+print()
+
+heapCache.reset()   # cache for .heap
+stackCache.reset()  # cache for .stack
+dataCache.reset()   # cache for .rodata, .sdata, .data, ...
+printSepline(label='Per section cache, entire region test')
 for ast in localAST:
-    # if not 'dispatch_region' in ast.name:
-    #     continue
-    printSepline(label=ast.name, llen=64)
+    printSepline(label=ast.name)
+    for k, v in ast.tbl.items():
+        if v.section == '.heap':
+            heapCache.lookup(v.addr)
+        elif v.section == '.stack':
+            stackCache.lookup(v.addr)
+        else:
+            dataCache.lookup(v.addr)
+    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+    printSepline()
+printSepline()
+print('[heap]', end=' ')
+heapCache.examineCacheInfo()
+print('[stack]', end=' ')
+stackCache.examineCacheInfo()
+print('[data]', end=' ')
+dataCache.examineCacheInfo()
+examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+print()
+
+cache1 = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
+printSepline(label='Single cache, per region test')
+for ast in localAST:
+    printSepline(label=ast.name)
+    cache1.reset()
+    #cache1.resetAccessStat()
     for k, v in ast.tbl.items():
         #print(f'[{k}] {v.addr:#8x}: {v.section}')
         cache1.lookup(v.addr)
-    printSepline(llen=64)
-    print(f'total access: {cache1.naccess}, hit: {cache1.nhit}, miss: {cache1.nmiss}, eviction: {cache1.nevict}')
-    exit(0)
-
+    cache1.examineAccessInfo()
+    printSepline()
+printSepline()
 print()
+cache1.reset()
+
+printSepline(label='Single cache, entire region test')
+for ast in localAST:
+    # if not 'dispatch_region' in ast.name:
+    #     continue
+    printSepline(label=ast.name)
+    for k, v in ast.tbl.items():
+        #print(f'[{k}] {v.addr:#8x}: {v.section}')
+        cache1.lookup(v.addr)
+    cache1.examineAccessInfo()
+    printSepline()
+cache1.examineCacheInfo()
+cache1.examineAccessInfo()
+
+## TODO: cache size를 조정해가며 테스트 진행, miss ratio가 0이 되는 지점을 찾는다

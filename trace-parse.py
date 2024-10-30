@@ -29,7 +29,7 @@ parser.add_argument('--model-name', action='store', default=modelName, help=f'Sp
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--disable-plot', action='store_true')
 parser.add_argument('--disable-plot-section-boundary', action='store_true')
-parser.add_argument('--verbose', action='store_true')
+parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('--ast-output', action='store', help='Dump AccessSequenceTable (AST) to specified file')
 
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
@@ -679,13 +679,14 @@ if args.enable_stat_table:
     printSepline()
     print()
     
-    print('## AccessSequenceTables ##')
-    printSepline('Local ASTs')
-    for i, ast in enumerate(localAST):
-        ast.examine()
+    if args.verbose:
+        print('## AccessSequenceTables ##')
+        printSepline('Local ASTs')
+        for i, ast in enumerate(localAST):
+            ast.examine()
+            print()
+        printSepline()
         print()
-    printSepline()
-    print()
 
 ## function call trace ==============================================
 print('## FunctionStatTables ##')
