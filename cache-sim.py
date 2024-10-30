@@ -21,16 +21,16 @@ modelConfig = ''
 parser = argparse.ArgumentParser()
 
 #parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
-parser.add_argument('--model-name', action='store', default=modelName, help=f'Specify target model name (default={modelName})')
-parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
+parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Specify the target model name (default={modelName})')
+parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify the batch size (default={batchSize})')
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 #parser.add_argument('--disable-plot-section-boundary', action='store_true')
 parser.add_argument('--verbose', '-v', action='store_true')
-parser.add_argument('--ast-input', action='store')
-parser.add_argument('--cache-size', action='store', default='32k', help='Specify entire cache size e.g., 32k, 8M')
-parser.add_argument('--cache-block-size', action='store', type=int, default=64)
-parser.add_argument('--nways', action='store', type=int, default=8)
-parser.add_argument('--replace-policy', '-p', action='store', default='fifo')
+parser.add_argument('--ast-input', '-a', action='store')
+parser.add_argument('--cache-size', '-s', action='store', default='32k', help='Specify the entire cache size e.g., 32k, 8M (default=32k)')
+parser.add_argument('--cache-block-size', '-b', action='store', type=int, default=64, help='Specify the byte size of a cache block (default=64)')
+parser.add_argument('--nways', '-w', action='store', type=int, default=8, help='Specify the number of ways (default=8)')
+parser.add_argument('--replace-policy', '-p', action='store', default='fifo', help='Specify the cache replacement policy (available options: fifo, lru, random; default=fifo)')
 args = parser.parse_args()
 ## ==================================================================
 
@@ -278,6 +278,16 @@ class CacheMem:
                 entryCnt += 1
         if args.verbose:
             print(f'CacheMem.clear: total {entryCnt} cache blocks cleared')
+
+    def refCountup(self, idx, tag):
+        # idx에 대응되는 현재 set의 캐시 블록들 탐색
+        for blk in self.mem[idx]:
+            if blk.valid:
+                if blk.tag == tag: # 참조된 블록은 카운터를 0으로 리셋
+                    blk.count = 0
+                else: # 그외 valid한 블록은 카운터를 1씩 증가
+                    blk.count += 1
+
         
     def lookup(self, addr):
         hitFlag = False
@@ -289,6 +299,8 @@ class CacheMem:
         for blk in self.mem[idx]:
             if blk.valid and blk.tag == tag: # cache hit
                 self.nhit += 1
+                if self.replacePolicy == 'lru':
+                    self.refCountup(idx, tag)
                 return True
         
         # cache miss
@@ -297,6 +309,9 @@ class CacheMem:
             print('>> miss', end='')
             print()
         self.fetch(idx, tag)
+
+        if self.replacePolicy == 'lru':
+            self.refCountup(idx, tag) # 참조된 블록은 0으로 리셋, 나머지 valid 블록들은 +1
         return False
 
     # 캐시 미스 시 호출
@@ -318,7 +333,8 @@ class CacheMem:
         # 가용 블럭 부재 시 evict 후에 insert 수행
         if evictFlag:
             replaceIdx = self.evict(idx) # 교체할 블록의 인덱스 결정
-            #print(f'replaceIdx: {replaceIdx}')
+            # if args.verbose:
+            #     print(f'replaceIdx: {replaceIdx}')
 
             if self.replacePolicy == 'fifo':
                 blk = CacheLine()
@@ -326,7 +342,7 @@ class CacheMem:
                 blk.tag = tag
                 self.mem[idx].append(blk)    
             elif self.replacePolicy == 'lru':
-                pass
+                (self.mem[idx])[replaceIdx].tag = tag
             elif self.replacePolicy == 'random':
                 #print(f'type of self.mem[idx]: {type(self.mem[idx])}')
                 (self.mem[idx])[replaceIdx].tag = tag
@@ -352,7 +368,17 @@ class CacheMem:
             return self.nways - 1
             #return 0
         elif self.replacePolicy == 'lru':
-            pass
+            lruIdx = 0
+            maxCount = (self.mem[idx])[0].count
+            # sprint('counts: ', end='')
+            for i, blk in enumerate(self.mem[idx]):
+                # 모든 블록이 valid인 상태이므로 valid bit를 검사할 필요는 없다
+                # print(f'{blk.count} ', end='')
+                if maxCount < blk.count:
+                    lruIdx = i
+                    maxCount = blk.count
+            # print()
+            return lruIdx
         elif self.replacePolicy == 'random':
             return random.randint(0, self.nways - 1)
         else:
@@ -390,8 +416,18 @@ def examineCachesAccessInfo(**caches):
         nhit += cache.nhit
         nmiss += cache.nmiss
         nevict += cache.nevict
-        print(f'[{name}] total access: {cache.naccess}, hit: {cache.nhit}, miss: {cache.nmiss}, eviction: {cache.nevict} --> hit ratio: {(cache.nhit / cache.naccess):.4f}, miss ratio: {(cache.nmiss / cache.naccess):.4f})')
-
+        hitratio = 0
+        missratio = 0
+        if cache.naccess != 0:
+            hitratio = cache.nhit / cache.naccess
+            missratio = cache.nmiss / cache.naccess
+        print(f'[{name}] total access: {cache.naccess}, hit: {cache.nhit}, miss: {cache.nmiss}, eviction: {cache.nevict} --> hit ratio: {hitratio:.4f}, miss ratio: {missratio:.4f})')
+    
+    hitratio = 0
+    missratio = 0
+    if naccess != 0:
+        hitratio = nhit / naccess
+        missratio = nmiss / naccess
     print(f'--> total access: {naccess}, hit: {nhit}, miss: {nmiss}, eviction: {nevict} --> hit ratio: {(nhit / naccess):.4f}, miss ratio: {(nmiss / naccess):.4f}')
 
 ## Cache simulation =================================================
@@ -409,12 +445,24 @@ def examineCachesAccessInfo(**caches):
 #     printSepline()
 # exit(0)
 
-heapCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy='fifo')
-stackCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy='fifo')
-dataCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy='fifo')
+heapCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
+stackCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
+dataCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
 
 printSepline(label='Per section cache, per region test')
-print('Not implemented yet...')
+for ast in localAST:
+    printSepline(label=ast.name)
+    heapCache.reset()
+    stackCache.reset()
+    dataCache.reset()
+    for k, v in ast.tbl.items():
+        if v.section == '.heap':
+            heapCache.lookup(v.addr)
+        elif v.section == '.stack':
+            stackCache.lookup(v.addr)
+        else:
+            dataCache.lookup(v.addr)
+    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
 printSepline()
 print()
 
@@ -432,7 +480,7 @@ for ast in localAST:
         else:
             dataCache.lookup(v.addr)
     examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
-    printSepline()
+    #printSepline()
 printSepline()
 print('[heap]', end=' ')
 heapCache.examineCacheInfo()
@@ -453,11 +501,11 @@ for ast in localAST:
         #print(f'[{k}] {v.addr:#8x}: {v.section}')
         cache1.lookup(v.addr)
     cache1.examineAccessInfo()
-    printSepline()
+    #printSepline()
 printSepline()
 print()
-cache1.reset()
 
+cache1.reset()
 printSepline(label='Single cache, entire region test')
 for ast in localAST:
     # if not 'dispatch_region' in ast.name:
@@ -467,7 +515,7 @@ for ast in localAST:
         #print(f'[{k}] {v.addr:#8x}: {v.section}')
         cache1.lookup(v.addr)
     cache1.examineAccessInfo()
-    printSepline()
+    #printSepline()
 cache1.examineCacheInfo()
 cache1.examineAccessInfo()
 

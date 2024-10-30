@@ -3,11 +3,11 @@
 READONLY=0
 
 OUTPUT_DIR=sim-output
-MODEL_LIST=(ecg_small fc_triple_small fc_triple_medium) # +fc_triple_large fc_triple_xl fc_triple_xxl
+MODEL_LIST=(ecg_small fc_triple_small fc_triple_medium fc_triple_large fc_triple_xl fc_triple_xxl)
 #MODEL_LIST=(ecg_small)
-CACHE_SIZE_LIST=(16k 32k 48k 64k 128k 256k 512k 1m)
+CACHE_SIZE_LIST=(1k 4k 8k 16k 32k 48k 64k 128k 256k 512k 1m 2m)
 N_WAYS_LIST=(1 2 4 8 16)
-POLICY_LIST=(fifo) # + lru random
+POLICY_LIST=(fifo lru random) # + lru random
 
 for mname in ${MODEL_LIST[@]}; do
     for policy in ${POLICY_LIST[@]}; do
