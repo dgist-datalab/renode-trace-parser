@@ -249,8 +249,9 @@ class CacheMem:
         self.tagBits = 32 - self.idxBits - self.blkBits
         self.idxMask = ((1 << self.idxBits) - 1) << self.blkBits
         self.tagMask = ((1 << self.tagBits) - 1) << (self.blkBits + self.idxBits)
-        print(f'Address layout: tag={self.tagBits}, index={self.idxBits} block offset={self.blkBits}')
-        print(f'Tag mask: {self.tagMask:b}, Index mask: {self.idxMask:b}')
+        if args.verbose:
+            print(f'Address layout: tag={self.tagBits}, index={self.idxBits} block offset={self.blkBits}')
+            print(f'Tag mask: {self.tagMask:b}, Index mask: {self.idxMask:b}')
 
         self.mem = []
         rows = 0
@@ -261,7 +262,8 @@ class CacheMem:
             cols = len(cset)
             #print()
         rows = len(self.mem)
-        print(f'--> Cache memory has successfully constructed: total {rows}x{cols} cache blocks')
+        if args.verbose:
+            print(f'--> Cache memory has successfully constructed: total {rows}x{cols} cache blocks')
     
     def resetAccessStat(self):
         self.naccess = 0
@@ -430,6 +432,44 @@ def examineCachesAccessInfo(**caches):
         missratio = nmiss / naccess
     print(f'--> total access: {naccess}, hit: {nhit}, miss: {nmiss}, eviction: {nevict} --> hit ratio: {(nhit / naccess):.4f}, miss ratio: {(nmiss / naccess):.4f}')
 
+def singleCacheTest(localAST, total_size, block_size, n_ways, replace_policy):
+    cache = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    cache.examineCacheInfo()
+    for ast in localAST:
+        # if not 'dispatch_region' in ast.name:
+        #     continue
+        if args.verbose:
+            printSepline(label=ast.name)
+        for k, v in ast.tbl.items():
+            cache.lookup(v.addr)
+        if args.verbose:
+            cache.examineAccessInfo()
+    cache.examineAccessInfo()
+
+def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy):
+    heapCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    stackCache = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    print('[heap]', end=' ')
+    heapCache.examineCacheInfo()
+    print('[stack]', end=' ')
+    stackCache.examineCacheInfo()
+    print('[data]', end=' ')
+    dataCache.examineCacheInfo()
+    for ast in localAST:
+        if args.verbose:
+            printSepline(label=ast.name)
+        for k, v in ast.tbl.items():
+            if v.section == '.heap':
+                heapCache.lookup(v.addr)
+            elif v.section == '.stack':
+                stackCache.lookup(v.addr)
+            else:
+                dataCache.lookup(v.addr)
+        if args.verbose:
+            examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+
 ## Cache simulation =================================================
 # cacheTest = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
 # printSepline(label='Functional test')
@@ -445,78 +485,90 @@ def examineCachesAccessInfo(**caches):
 #     printSepline()
 # exit(0)
 
-heapCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
-stackCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
-dataCache = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
+#cache1 = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
+# printSepline(label='Single cache, per region test')
+# for ast in localAST:
+#     printSepline(label=ast.name)
+#     cache1.reset()
+#     #cache1.resetAccessStat()
+#     for k, v in ast.tbl.items():
+#         #print(f'[{k}] {v.addr:#8x}: {v.section}')
+#         cache1.lookup(v.addr)
+#     cache1.examineAccessInfo()
+#     #printSepline()
+# printSepline()
+# print()
 
-printSepline(label='Per section cache, per region test')
-for ast in localAST:
-    printSepline(label=ast.name)
-    heapCache.reset()
-    stackCache.reset()
-    dataCache.reset()
-    for k, v in ast.tbl.items():
-        if v.section == '.heap':
-            heapCache.lookup(v.addr)
-        elif v.section == '.stack':
-            stackCache.lookup(v.addr)
-        else:
-            dataCache.lookup(v.addr)
-    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+# 512B-2MB
+totalSizeSet = ( 512, 1024, 2 * 1024, 4 * 1024, 8 * 1024, 16 * 1024, 32 * 1024, 64 * 1024, 128 * 1024, 256 * 1024, 512 * 1024, 1024 * 1024, 2 * 1024 * 1024 )
+nwaysSet     = ( 1, 2, 4, 8, 16, 32, 64, 128, 256 )
+policySet    = ( 'fifo', 'lru', 'random' )
+blockSize = arg_blockSize
+
+printSepline(label='Single cache, entire region test (extremely small case)')
+for policy in policySet:
+    singleCacheTest(localAST, 64,  blockSize, 1, policy)
+    singleCacheTest(localAST, 128, blockSize, 1, policy)
+    singleCacheTest(localAST, 128, blockSize, 2, policy)
+    singleCacheTest(localAST, 256, blockSize, 1, policy)
+    singleCacheTest(localAST, 256, blockSize, 2, policy)
+    singleCacheTest(localAST, 256, blockSize, 4, policy)
 printSepline()
 print()
 
-heapCache.reset()   # cache for .heap
-stackCache.reset()  # cache for .stack
-dataCache.reset()   # cache for .rodata, .sdata, .data, ...
-printSepline(label='Per section cache, entire region test')
-for ast in localAST:
-    printSepline(label=ast.name)
-    for k, v in ast.tbl.items():
-        if v.section == '.heap':
-            heapCache.lookup(v.addr)
-        elif v.section == '.stack':
-            stackCache.lookup(v.addr)
-        else:
-            dataCache.lookup(v.addr)
-    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
-    #printSepline()
-printSepline()
-print('[heap]', end=' ')
-heapCache.examineCacheInfo()
-print('[stack]', end=' ')
-stackCache.examineCacheInfo()
-print('[data]', end=' ')
-dataCache.examineCacheInfo()
-examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
-print()
-
-cache1 = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
-printSepline(label='Single cache, per region test')
-for ast in localAST:
-    printSepline(label=ast.name)
-    cache1.reset()
-    #cache1.resetAccessStat()
-    for k, v in ast.tbl.items():
-        #print(f'[{k}] {v.addr:#8x}: {v.section}')
-        cache1.lookup(v.addr)
-    cache1.examineAccessInfo()
-    #printSepline()
+printSepline(label='Per-section cache, entire region test (extremely small case)')
+for policy in policySet:
+    perSectionCacheTest(localAST, 64,  blockSize, 1, policy)
+    perSectionCacheTest(localAST, 128, blockSize, 1, policy)
+    perSectionCacheTest(localAST, 128, blockSize, 2, policy)
+    perSectionCacheTest(localAST, 256, blockSize, 1, policy)
+    perSectionCacheTest(localAST, 256, blockSize, 2, policy)
+    perSectionCacheTest(localAST, 256, blockSize, 4, policy)
 printSepline()
 print()
 
-cache1.reset()
+exit(0)
+
 printSepline(label='Single cache, entire region test')
-for ast in localAST:
-    # if not 'dispatch_region' in ast.name:
-    #     continue
-    printSepline(label=ast.name)
-    for k, v in ast.tbl.items():
-        #print(f'[{k}] {v.addr:#8x}: {v.section}')
-        cache1.lookup(v.addr)
-    cache1.examineAccessInfo()
-    #printSepline()
-cache1.examineCacheInfo()
-cache1.examineAccessInfo()
+for policy in policySet:
+    for nways in nwaysSet:
+        for totalSize in totalSizeSet:
+            nblocks = int(totalSize / blockSize)
+            nsets = int(nblocks / nways)
+            if nsets < 1: # 불가능한 조합은 건너뛴다 (예: 128bytes, 8-way)
+                continue
+            singleCacheTest(localAST, totalSize, blockSize, nways, policy)
+printSepline()
+print()
 
-## TODO: cache size를 조정해가며 테스트 진행, miss ratio가 0이 되는 지점을 찾는다
+printSepline(label='Per section cache, entire region test')
+for policy in policySet:
+    for nways in nwaysSet:
+        for totalSize in totalSizeSet:
+            nblocks = int(totalSize / blockSize)
+            nsets = int(nblocks / nways)
+            if nsets < 1:
+                continue
+            perSectionCacheTest(localAST, totalSize, blockSize, nways, policy)
+printSepline()
+
+# printSepline(label='Per section cache, per region test')
+# for ast in localAST:
+#     printSepline(label=ast.name)
+#     heapCache.reset()
+#     stackCache.reset()
+#     dataCache.reset()
+#     for k, v in ast.tbl.items():
+#         if v.section == '.heap':
+#             heapCache.lookup(v.addr)
+#         elif v.section == '.stack':
+#             stackCache.lookup(v.addr)
+#         else:
+#             dataCache.lookup(v.addr)
+#     examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+# printSepline()
+# print()
+
+# heapCache.reset()   # cache for .heap
+# stackCache.reset()  # cache for .stack
+# dataCache.reset()   # cache for .rodata, .sdata, .data, ...
