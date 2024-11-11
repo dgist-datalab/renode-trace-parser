@@ -90,6 +90,12 @@ class StatTableEntry:
             return True
         return False
 
+    def getTotalLoads(self):
+        return self.loadInt + self.loadUint + self.loadFP + self.loadVec
+    
+    def getTotalStores(self):
+        return self.storeInt + self.storeUint + self.storeFP + self.storeVec
+
 class SectionStatTable:
     def __init__(self, secTbl):
         self.tbl = {}
@@ -102,8 +108,8 @@ class SectionStatTable:
 
     # optype: load/store/arith/custom
     # dtype: sint/uint/float/vector
-    def put(self, secTbl, optype, dtype, addr):
-        name = getSectionName(secTbl, addr)
+    def putWithSectionName(self, secName, optype, dtype, addr):
+        name = secName
         if name is None:
             print('SectionStatTable.put: illegal address %08x' % addr)
             return
@@ -134,6 +140,10 @@ class SectionStatTable:
             print('SectionStatTable.put: %d is illegal operation type' % optype)
             return
 
+    def put(self, secTbl, optype, dtype, addr):
+        name = getSectionName(secTbl, addr)
+        self.putWithSectionName(name, optype, dtype, addr)
+
     def examine(self, nonZero=False):
         print(f'{self.name}:')
         print('%-30s %-27s | %-27s' % (' ', 'load', 'store'))
@@ -142,6 +152,19 @@ class SectionStatTable:
             if not nonZero or (nonZero and v.isNonZero()):
                 print('%-30s' % k, end=' ')
                 v.examine()
+
+    def getTotalLoads(self):
+        nloads = 0
+        # tbl은 섹션마다 엔트리 존재
+        for sec, entry in self.tbl.items():
+            nloads += entry.getTotalLoads()
+        return nloads
+
+    def getTotalStores(self):
+        nstores = 0
+        for sec, entry in self.tbl.items():
+            nstores += entry.getTotalStores()
+        return nstores
 
 # def initSectionStat(accTbl):
 #     for s in sectionTable:

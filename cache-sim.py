@@ -230,11 +230,13 @@ class CacheLine:
 
 
 class CacheMem:
-    def __init__(self, totalSize=32*1024, blockSize=64, nways=8, replacePolicy='fifo', targetSection=None):
+    def __init__(self, totalSize=32*1024, blockSize=64, nways=8, replacePolicy='fifo', targetSection=None):      
         self.naccess = 0
         self.nhit = 0
         self.nmiss = 0
         self.nevict = 0
+
+        self.localSST = []
 
         self.totalSize = totalSize
         self.blockSize = blockSize
@@ -407,6 +409,18 @@ class CacheMem:
     
     def examineAccessInfo(self):
         print(f'total access: {self.naccess}, hit: {self.nhit}, miss: {self.nmiss}, eviction: {self.nevict} --> hit ratio: {(self.nhit / self.naccess):.4f}, miss ratio: {(self.nmiss / self.naccess):.4f}')
+
+    def getTotalLoads(self):
+        nloads = 0
+        for sst in self.localSST:
+            nloads += sst.getTotalLoads()
+        return nloads
+
+    def getTotalStores(self):
+        nstores = 0
+        for sst in self.localSST:
+            nstores += sst.getTotalStores()
+        return nstores
             
 def examineCachesAccessInfo(**caches):
     naccess = 0
@@ -424,6 +438,10 @@ def examineCachesAccessInfo(**caches):
             hitratio = cache.nhit / cache.naccess
             missratio = cache.nmiss / cache.naccess
         print(f'[{name}] total access: {cache.naccess}, hit: {cache.nhit}, miss: {cache.nmiss}, eviction: {cache.nevict} --> hit ratio: {hitratio:.4f}, miss ratio: {missratio:.4f})')
+        
+        nloads = cache.getTotalLoads()
+        nstores = cache.getTotalStores()
+        print(f'    >> loads: {nloads}, stores: {nstores}, total: {nloads + nstores}')
     
     hitratio = 0
     missratio = 0
@@ -450,24 +468,73 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
     heapCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     stackCache = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+
+    heapLowerAddress = 0
+    heapUpperAddress = 0
+    stackLowerAddress = 0
+    stackUpperAddress = 0
+
+    lowerAddress = { '.data': 0, '.rodata': 0, '.sdata': 0, '.bss': 0, '.stack': 0, '.heap': 0 }
+    upperAddress = { '.data': 0, '.rodata': 0, '.sdata': 0, '.bss': 0, '.stack': 0, '.heap': 0 }
+    
     print('[heap]', end=' ')
     heapCache.examineCacheInfo()
     print('[stack]', end=' ')
     stackCache.examineCacheInfo()
     print('[data]', end=' ')
     dataCache.examineCacheInfo()
+
     for ast in localAST:
         if args.verbose:
             printSepline(label=ast.name)
+
+        hSST = rt.stattable.SectionStatTable(sectionTable)
+        hSST.name = ast.name
+        sSST = rt.stattable.SectionStatTable(sectionTable)
+        sSST.name = ast.name
+        dSST = rt.stattable.SectionStatTable(sectionTable)
+        dSST.name = ast.name
+
         for k, v in ast.tbl.items():
+            for sec, addr in lowerAddress.items():
+                # print(f'v.section: {v.section}, sec: {sec}, addr: {addr:8x}, v.addr: {v.addr:8x}')
+                if v.section == sec:
+                    #print(f'v.section: {v.section}, sec: {sec}, addr: {addr:8x}, v.addr: {v.addr:8x}')
+                    if addr == 0 or addr > v.addr:
+                        lowerAddress[sec] = v.addr
+            for sec, addr in upperAddress.items():
+                if v.section == sec:
+                    if addr < v.addr:
+                        upperAddress[sec] = v.addr
+
             if v.section == '.heap':
+                hSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
                 heapCache.lookup(v.addr)
             elif v.section == '.stack':
+                sSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
                 stackCache.lookup(v.addr)
             else:
+                dSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
                 dataCache.lookup(v.addr)
-        if args.verbose:
-            examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+        heapCache.localSST.append(hSST)
+        stackCache.localSST.append(sSST)
+        dataCache.localSST.append(dSST)
+
+        # if args.verbose:
+        examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+        print(f'## {ast.name} ##')
+        for sec, addr in lowerAddress.items():
+            lower = lowerAddress[sec]
+            upper = upperAddress[sec]
+            byteDiff = upper - lower
+            # 접근되지 않은 섹션은 출력 생략
+            if byteDiff == 0 and (lower == 0 or upper == 0):
+                continue
+            print(f'{sec:6}: {lower:#08x}-{upper:#08x} ({byteDiff + 1} bytes = {(byteDiff + 1) / 1024} KB)')
+
+        for sec, addr in lowerAddress.items():
+            lowerAddress[sec] = 0
+            upperAddress[sec] = 0
     examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
 
 ## Cache simulation =================================================
@@ -504,6 +571,10 @@ totalSizeSet = ( 512, 1024, 2 * 1024, 4 * 1024, 8 * 1024, 16 * 1024, 32 * 1024, 
 nwaysSet     = ( 1, 2, 4, 8, 16, 32, 64, 128, 256 )
 policySet    = ( 'fifo', 'lru', 'random' )
 blockSize = arg_blockSize
+
+printSepline(label='Per-section cache, entire region test (single test)')
+perSectionCacheTest(localAST, arg_totalSize, blockSize, arg_nways, arg_replacePolicy)
+exit(0)
 
 printSepline(label='Single cache, entire region test (extremely small case)')
 for policy in policySet:
