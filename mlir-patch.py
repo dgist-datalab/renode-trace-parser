@@ -22,7 +22,10 @@ elif args.model_name == 'fc_triple_xxl':
     srcName = 'fc_triple_xxl_iree-dist-20230218.434_llvm-cpu_flow'
 elif args.model_name == 'ecg_small':
     srcName = 'ecg_small_fp32_iree-dist-20230218.434_llvm-cpu_flow'
-elif args.model_name == 'mobilenet' or args.model_name == 'mobilenet_v2':
+elif args.model_name == 'mobilenet' or args.model_name == 'mobilenet_v1':
+    args.model_name = 'mobilenet_v1'
+    srcName = 'mobilenet_v1_iree-dist-20230218.434_llvm-cpu_flow'
+elif args.model_name == 'mobilenet_v2':
     srcName = 'mobilenetv2_iree-dist-20230218.434_llvm-cpu_flow'
 elif args.model_name == 'mobilebert':
     srcName = 'mobilebert_iree-dist-20230218.434_llvm-cpu_flow'

@@ -53,7 +53,8 @@ args = parser.parse_args()
 #modelName = 'ecg_small'
 #modelName = 'mobilenet'
 
-logFilePath = LOCAL_LOG_PATH
+# logFilePath = LOCAL_LOG_PATH
+logFilePath = GLOBAL_LOG_PATH
 memConfig = 'default'
 #memConfigSuffix = '_default' # default='default'
 logFileName = ''
@@ -148,12 +149,32 @@ elif modelName == 'ecg_small':
     readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
     funcTraceFileName = 'ecg_small'
 
+# MobileNet: mem config도 반영하도록 코드 추가할 것
+elif modelName == 'mobilenet_v1':
+    logFileName = 'mobilenet_v1_20241113_203002'
+    headerFileName = 'mobilenet_v1_emitc_static_headers'
+    readelfFileName = 'mobilenet_v1_emitc_static_readelf'
+    funcTraceFileName = ''
+
+elif modelName == 'mobilenet_v1_mlir':
+    logFileName = 'mobilenet_v1_mlir_20241113_203119'
+    headerFileName = 'mobilenet_v1_mlir_emitc_static_headers'
+    readelfFileName = 'mobilenet_v1_mlir_emitc_static_readelf'
+    funcTraceFileName = ''
+
+
+elif modelName == 'mobilebert':
+    logFileName = 'mobilebert_20241113_203119'
+    headerFileName = 'mobilebert_emitc_static_headers'
+    readelfFileName = 'mobilebert_emitc_static_readelf'
+    funcTraceFileName = ''
+
 else:
     print(f'The model {modelName} is not supported')
 
 # trace log 파일 경로 결정
-if 'fc_triple' in modelName:
-    logFilePath = GLOBAL_LOG_PATH
+if 'ecg_small' in modelName:
+    logFilePath = LOCAL_LOG_PATH
 
 logFileExt = '.bin'
 if args.human_readable:
@@ -689,8 +710,8 @@ if args.enable_stat_table:
         print()
 
 ## function call trace ==============================================
-print('## FunctionStatTables ##')
-loadFunctionTrace(funcTraceFilePath)
+# print('## FunctionStatTables ##')
+# loadFunctionTrace(funcTraceFilePath)
 
 
 ## 그래프 출력 ========================================================
