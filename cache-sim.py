@@ -467,7 +467,10 @@ def singleCacheTest(localAST, total_size, block_size, n_ways, replace_policy):
 def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy):
     heapCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     stackCache = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
-    dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    #dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    #dataCache  = CacheMem(totalSize=256 * 1024, blockSize=4096, nways=64, replacePolicy=replace_policy)
+    
+    dataCache  = CacheMem(totalSize=512 * 1024, blockSize=4096, nways=128, replacePolicy=replace_policy)
 
     heapLowerAddress = 0
     heapUpperAddress = 0
@@ -521,8 +524,8 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
         dataCache.localSST.append(dSST)
 
         # if args.verbose:
-        examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
         print(f'## {ast.name} ##')
+        examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
         for sec, addr in lowerAddress.items():
             lower = lowerAddress[sec]
             upper = upperAddress[sec]
