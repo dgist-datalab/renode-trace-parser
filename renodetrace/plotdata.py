@@ -184,10 +184,11 @@ def plotSectionBoundary(modelName, secTbl, ax):
     # if args.verbose:
     #     print()
 
-def plotLdstSep(modelName, secTbl, plotData):
+def plotLdstSep(modelName, secTbl, plotData, typeWise=False):
     ## 4개 창 생성 및 개별 그래프 출력
     fig1, axs1 = plt.subplots(num=1)
-    fig1.canvas.manager.set_window_title('Memory access trace')
+    # fig1.canvas.manager.set_window_title('Memory access trace')
+    fig1.canvas.manager.set_window_title(f'{modelName}: memory access trace')
     initPlotFormat(axs1, plotData, model_name=modelName)
     plotSectionBoundary(modelName, secTbl, axs1)
     axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
@@ -197,6 +198,9 @@ def plotLdstSep(modelName, secTbl, plotData):
     axs1.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
     axs1.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
     axs1.set_title('Memory access trace (all)')
+
+    if not typeWise:
+        return
 
     fig2, axs2 = plt.subplots(num=2)
     fig2.canvas.manager.set_window_title('Memory access trace')
@@ -278,14 +282,18 @@ def plotArith(modelName, plotData):
     axs2[1, 1].scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
     axs2[1, 1].set_title('Vector arithmetic only')
 
-def plotArithSep(modelName, plotData):
+def plotArithSep(modelName, plotData, typeWise=False):
     fig1, axs1 = plt.subplots(num=5)
     initPlotFormat(axs1, plotData, pltype='arith', model_name=modelName)
-    fig1.canvas.manager.set_window_title('Arithmetic operations trace')
+    #fig1.canvas.manager.set_window_title('Arithmetic operations trace')
+    fig1.canvas.manager.set_window_title(f'{modelName}: arithmetic operations trace')
     axs1.scatter(plotData.arithX, plotData.arithY, color=plotColor['arith'], s=1)
     axs1.scatter(plotData.fparithX, plotData.fparithY, color=plotColor['fparith'], s=1)
     axs1.scatter(plotData.varithX, plotData.varithY, color=plotColor['varith'], s=1)
     axs1.set_title('Arithmetic operations trace (all)')
+
+    if not typeWise:
+        return
 
     fig2, axs2 = plt.subplots(num=6)
     initPlotFormat(axs2, plotData, pltype='arith', model_name=modelName)

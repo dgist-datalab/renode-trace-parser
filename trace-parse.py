@@ -19,22 +19,23 @@ modelConfig = ''
 ## Initialize argparse ==============================================
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--all', action='store_true', help='Enable all options')
-parser.add_argument('--plot-ldst', action='store_true', help='Enable plotting load/store instruction traces')
-parser.add_argument('--plot-arith', action='store_true', help='Enable plotting arithmetic instruction traces')
+parser.add_argument('--plot-type-wise', action='store_true')
+parser.add_argument('--plot-ldst', action='store_true', help='Plot load/store instructions')
+parser.add_argument('--plot-arith', action='store_true', help='Plot arithmetic instructions')
 parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
-parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
-parser.add_argument('--enable-stat-table', action='store_true', default=False, help='Enable construct StatTables (default=False)')
-parser.add_argument('--model-name', action='store', default=modelName, help=f'Specify target model name (default={modelName})')
-parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--disable-plot', action='store_true')
 parser.add_argument('--disable-plot-section-boundary', action='store_true')
+parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
+parser.add_argument('--enable-stat-table', action='store_true', default=False, help='Enable construct StatTables (default=False)')
+parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Specify target model name (default={modelName})')
+parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--verbose', '-v', action='store_true')
-parser.add_argument('--ast-output', action='store', help='Dump AccessSequenceTable (AST) to specified file')
+parser.add_argument('--ast-output', '-a', action='store', help='Dump AccessSequenceTable (AST) to specified file')
 
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 #parser.add_argument('--without-custom', action='store_true')
-parser.add_argument('--enable-dump', action='store_true', help='Enable plot dump save/load')
+parser.add_argument('--all', action='store_true', help='Enable all options')
+parser.add_argument('--enable-dump', action='store_true', help='Enable dump save/load')
 parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 #parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 args = parser.parse_args()
@@ -149,14 +150,14 @@ elif modelName == 'ecg_small':
     readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
     funcTraceFileName = 'ecg_small'
 
-# MobileNet: mem config도 반영하도록 코드 추가할 것
-elif modelName == 'mobilenet_v1':
-    logFileName = 'mobilenet_v1_20241113_203002'
-    headerFileName = 'mobilenet_v1_emitc_static_headers'
-    readelfFileName = 'mobilenet_v1_emitc_static_readelf'
-    funcTraceFileName = ''
+# w/o custom instruction
+# elif modelName == 'mobilenet_v1':
+#     logFileName = 'mobilenet_v1_20241113_203002'
+#     headerFileName = 'mobilenet_v1_emitc_static_headers'
+#     readelfFileName = 'mobilenet_v1_emitc_static_readelf'
+#     funcTraceFileName = ''
 
-elif modelName == 'mobilenet_v1_mlir':
+elif modelName == 'mobilenet_v1':
     logFileName = 'mobilenet_v1_mlir_20241113_203119'
     headerFileName = 'mobilenet_v1_mlir_emitc_static_headers'
     readelfFileName = 'mobilenet_v1_mlir_emitc_static_readelf'
@@ -260,12 +261,6 @@ curDispatchRegion = -1      # 현재 dispatch region의 인덱스; 첫 DR 진입
 onDispatchRegion = False
 
 print()
-
-# 아무 인자 없을 시 --plot-ldst, --plot-arith는 참으로 설정
-#if len(sys.argv) < 2:
-if not args.plot_ldst and not args.plot_arith:
-    args.plot_ldst = True
-    args.plot_arith = True
 
 ## Open the trace log or dump file ==================================
 #logFileName = 'ecg_small_20240624_142406'		# stack=200K (default)
@@ -723,22 +718,27 @@ if args.disable_plot:
 
 print('Plotting graphs...')
 
+# 옵션을 명시하지 않을 경우 둘 다 출력
+if (not args.plot_ldst) and (not args.plot_arith):
+    args.plot_ldst = True
+    args.plot_arith = True
+
 if args.cumulative:
     plotCumul()
 else:
     ## load/store 명령어
-    if args.plot_ldst or args.all:
+    if args.plot_ldst:
         if args.separate:
-            plotLdstSep(modelName, sectionTable, plotData)
+            plotLdstSep(modelName, sectionTable, plotData, args.plot_type_wise)
 
         else:
             plotLdst(modelName, sectionTable, plotData)
             
 
     ## 새로운 창: 산술 연산 명령어
-    if args.plot_arith or args.all:
+    if args.plot_arith:
         if args.separate:
-            plotArithSep(modelName, plotData)
+            plotArithSep(modelName, plotData, args.plot_type_wise)
         else:
             plotArith(modelName, plotData)
 
