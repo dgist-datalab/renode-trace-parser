@@ -1,7 +1,7 @@
 DL_TRACE_SIZE_COMPACT_MEM = 13
 DL_TRACE_SIZE_COMPACT_ARITH = 14
 
-LOCAL_LOG_PATH = 'log'
+LOCAL_LOG_PATH  = 'log'
 GLOBAL_LOG_PATH = '/home/euntae/tmp/renode-log'
 FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function'
 

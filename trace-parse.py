@@ -254,6 +254,9 @@ initAST = AccessSequenceTable()
 initAST.name = NON_DR_STAT_TABLE_NAME + '#0'
 localAST.append(initAST)
 
+# InstStatTable
+instStatTable = InstStatTable()
+
 # Custom instruction data
 curRegion = 0               # dispatch region을 포함, 현재 영역의 인덱스; 처음엔 0번으로 시작한다
 curHostRegion = 0           # dispatch region 바깥 영역의 인덱스; 프로그램 흐름상 0번으로 시작한다
@@ -566,6 +569,10 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
                 exit(1)
             
+            ## StatTable류 생성 허용
+            # curDispatchRegion: 현재 dispatch region 인덱스
+            # curHostRegion: 현재 host region 인덱스
+            # curRegion: 현재 region 인덱스
             if args.enable_stat_table:
                 if opType == 0 or opType == 1: # load/store
                     globalSST.put(sectionTable, opType, dataType, addr)
@@ -576,6 +583,15 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     localSST[curRegion].put(sectionTable, opType, dataType, addr)
                     localOST[curRegion].put(objectTable, opType, dataType, addr)
                     localAST[curRegion].put(sectionTable, objectTable, instCtr, addr, opType, dataType, operandSize)
+
+                    if opType == 0: # load
+                        instStatTable.put(curRegion, INST_STAT_LOAD)
+                    else:
+                        instStatTable.put(curRegion, INST_STAT_STORE)
+
+                elif opType == 2: # arith
+                    instStatTable.put(curRegion, dataType)
+
                 elif opType == 3: # custom
                     #globalSectionAccessTable
                     if opc == 0 and (funct3 == 0 or funct3 == 1): # dr.begin or dr.end
@@ -598,8 +614,13 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         ast.name = stName
                         localAST.append(ast)
 
+                        istEntry = InstStatTableEntry()
+                        istEntry.name = stName
+                        instStatTable.tbl.append(istEntry)
+
 
             ## Update segment boundary
+            # 이미 섹션 테이블이 있는데 이 부분 필요할까? (나중에 deprecate 시킬 것)
             if opType == 0 or opType == 1: # load/store
                 if addr >= stackBase: # stack
                     if plotData.stackAddrHigh < addr:
@@ -611,12 +632,14 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         plotData.dataAddrHigh = addr
                     if plotData.dataAddrLow > addr:
                         plotData.dataAddrLow = addr
-            
-            lastInstCtr = instCtr
-        # End of while loop
+            # End of while loop (in binary trace mode)
+
+        lastInstCtr = instCtr
         plotData.totalInstCnt = lastInstCtr + 100
         print(f'Last instruction counter: {lastInstCtr}')
+        # End of binary trace mode
     # End of trace analysis
+
     endTime = time.time()
     logFile.close()
     print('Trace analyzing has been completed')
@@ -694,6 +717,11 @@ if args.enable_stat_table:
         print()
     printSepline()
     print()
+
+    printSepline('InstStatTable')
+    instStatTable.examine(True)
+    printSepline()
+    print()
     
     if args.verbose:
         print('## AccessSequenceTables ##')
@@ -707,7 +735,6 @@ if args.enable_stat_table:
 ## function call trace ==============================================
 # print('## FunctionStatTables ##')
 # loadFunctionTrace(funcTraceFilePath)
-
 
 ## 그래프 출력 ========================================================
 # Initialize plot

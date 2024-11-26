@@ -67,6 +67,70 @@ def getSectionName(secTbl, addr):
             return s.name
     return None
 
+INST_STAT_LOAD = 10
+INST_STAT_STORE = 11
+
+# 하나의 엔트리는 하나의 region에 대한 통계 표현
+class InstStatTableEntry:
+    def __init__(self):
+        self.name  = ''
+        self.int   = 0
+        self.uint  = 0
+        self.fp    = 0
+        self.vec   = 0
+        # 필요에 따라 load/store 카운터 기능 사용
+        self.load  = 0
+        self.store = 0
+    
+    def examine(self, ext=False):
+        if ext:
+            print(f'[{self.name}] int: {self.int}, uint: {self.uint}, fp: {self.fp}, vec: {self.vec}, load: {self.load}, store: {self.store}')
+        else:
+            print(f'[{self.name}] int: {self.int}, uint: {self.uint}, fp: {self.fp}, vec: {self.vec}')
+        
+    def getTotal(self, ext=False):
+        if ext:
+            return self.int + self.uint + self.fp + self.vec + self.load + self.storeprint(f'[{self.name}] int: {self.int}, uint: {self.uint}, fp: {self.fp}, vec: {self.vec}, load: {self.load}, store: {self.store}')
+        else:
+            return self.int + self.uint + self.fp + self.vec
+
+
+# DATA_TYPE_STR = ( 'sint', 'uint', 'float', 'vector' )
+class InstStatTable:
+    def __init__(self):
+        self.tbl = []
+        initEntry = InstStatTableEntry()
+        initEntry.name = NON_DR_STAT_TABLE_NAME + '#0'
+        self.tbl.append(initEntry)
+
+    def put(self, idx, dtype):
+        if dtype == 0:   # int
+            self.tbl[idx].int += 1
+        elif dtype == 1: # uint
+            self.tbl[idx].uint += 1
+        elif dtype == 2: # float
+            self.tbl[idx].fp += 1
+        elif dtype == 3: # vector
+            self.tbl[idx].vec += 1
+        elif dtype == INST_STAT_LOAD:
+            self.tbl[idx].load += 1
+        elif dtype == INST_STAT_STORE:
+            self.tbl[idx].store += 1
+
+    def getRegionTotal(self, idx, ext=False):
+        return self.tbl[idx].getTotal(ext)
+
+    def getTotal(self, ext=False):
+        total = 0
+        for e in self.tbl:
+            total += e.getTotal(ext)
+        return total
+
+    def examine(self, ext=False):
+        for e in self.tbl:
+            e.examine(ext)
+
+
 # SectionStatTableEntry -> StatTableEntry
 class StatTableEntry:
     def __init__(self):
