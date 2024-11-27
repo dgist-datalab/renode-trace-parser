@@ -42,18 +42,9 @@ parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 args = parser.parse_args()
 
 ## 로그 파일명 설정
-# 구버전
-# logFileName = 'ecg_small_20240624_142406' # human-readable, with arithmetic
-
-# 신버전
-#logFileName = 'ecg_small_20240807_013502' # human-readable, with arithmetic
-#logFileName = 'ecg_small_20240812_163305' # binary, with arithmetic
-
-#logFileName = 'mnist_20240813_200917' # binary, with arithmetic
-#logFileName = 'mobilenet_20240813_201434' # binary, with arithmetic
-
-#modelName = 'ecg_small'
-#modelName = 'mobilenet'
+LOCAL_LOG_PATH  = 'log'
+GLOBAL_LOG_PATH = '/home/euntae/tmp/renode-log'
+FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function'
 
 # logFilePath = LOCAL_LOG_PATH
 logFilePath = GLOBAL_LOG_PATH
@@ -64,16 +55,8 @@ headerFileName = ''
 readelfFileName = ''
 funcTraceFileName = ''
 
-# if args.model_name is not None:
-#     modelName = args.model_name
-
-# if args.batch_size is not None:
-#     batchSize = int(args.batch_size)
-
 modelName = args.model_name
 batchSize = args.batch_size
-
-#print(f'Model name: {modelName}')
 
 if modelName == 'fc_basic':
     if batchSize == 1:
@@ -185,8 +168,9 @@ if args.human_readable:
 pathName = logFilePath + '/' + logFileName + logFileExt
 
 # ELF header 및 symbol table 파일의 실제 경로 결정
-HEADER_PATH = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/headers'
-READELF_PATH = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/readelf-sym'
+ELF_DUMP_BASE = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}'
+HEADER_PATH   = f'{ELF_DUMP_BASE}/headers'
+READELF_PATH  = f'{ELF_DUMP_BASE}/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/readelf-sym'
 
 headerFilePath = f'{HEADER_PATH}/{headerFileName}.dump'
 readelfFilePath = f'{READELF_PATH}/{readelfFileName}.dump'
