@@ -170,7 +170,7 @@ pathName = logFilePath + '/' + logFileName + logFileExt
 # ELF header 및 symbol table 파일의 실제 경로 결정
 ELF_DUMP_BASE = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}'
 HEADER_PATH   = f'{ELF_DUMP_BASE}/headers'
-READELF_PATH  = f'{ELF_DUMP_BASE}/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/readelf-sym'
+READELF_PATH  = f'{ELF_DUMP_BASE}/readelf-sym'
 
 headerFilePath = f'{HEADER_PATH}/{headerFileName}.dump'
 readelfFilePath = f'{READELF_PATH}/{readelfFileName}.dump'
@@ -742,8 +742,11 @@ if args.enable_stat_table:
 # loadFunctionTrace(funcTraceFilePath)
 
 printSepline('Sequence of dispatch region call')
+drCnt = 0
 for drName in dispatchRegionSequence:
     print(drName)
+    drCnt += 1
+print(f'>> Total {drCnt} dispatch regions')
 printSepline()
 
 ## 그래프 출력 ========================================================
