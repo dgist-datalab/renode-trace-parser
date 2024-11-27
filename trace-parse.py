@@ -222,12 +222,20 @@ sectionTable = []
 symbolTable = []
 objectTable = []
 
+dispatchRegionTable = []    # part of SymbolTable
+dispatchRegionSequence = [] # list of string
+
 loadSectionTable(headerFilePath, sectionTable)
 loadSymbolTable(readelfFilePath, symbolTable)
+createDispatchRegionTable(symbolTable, dispatchRegionTable) # 심볼 테이블로부터 dispatch region에 해당하는 엔트리만 추출하여 새로운 테이블 'dispatchRegionTable'을 생성한다
 loadObjectTable(sectionTable, symbolTable, objectTable)
 examineSectionTable(sectionTable)
 examineSymbolTable(symbolTable)
 examineObjectTable(objectTable)
+
+printSepline('SymbolTable (dispatch regions only)')
+examineSymbolTable(dispatchRegionTable)
+printSepline()
 
 DR_STAT_TABLE_NAME = 'dispatch_region'
 NON_DR_STAT_TABLE_NAME = 'host'
@@ -556,13 +564,15 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     if funct3 == 0: # dr.begin
                         curRegion += 1
                         curDispatchRegion += 1
-                        print(f'Dispatch region #{curDispatchRegion} begin')
+                        curDispatchRegionName = getDispatchRegionName(dispatchRegionTable, addr)
+                        dispatchRegionSequence.append(curDispatchRegionName)
+                        print(f'Dispatch region #{curDispatchRegion} begin: instCtr={instCtr}, addr={addr:#8x}, name={curDispatchRegionName}')
                         onDispatchRegion = True
 
                     elif funct3 == 1: #dr.end
                         curRegion += 1
                         curHostRegion += 1
-                        print(f'Dispatch region #{curDispatchRegion} end')
+                        print(f'Dispatch region #{curDispatchRegion} end: instCtr={instCtr}, addr={addr:#8x}')
                         onDispatchRegion = False
             else: # parsing error
                 print('E: unrecognized instruction:')
@@ -732,9 +742,22 @@ if args.enable_stat_table:
         printSepline()
         print()
 
+    # 각 localAST의 시작 명령어의 instCnt 출력
+    print('## AccessSequenceTables (instruction counter only) ##')
+    printSepline('Local ASTs')
+    for i, ast in enumerate(localAST):
+        print(f'{ast.name}: {ast.getFirstInstructionCounter()}')
+    printSepline()
+    print()
+
 ## function call trace ==============================================
 # print('## FunctionStatTables ##')
 # loadFunctionTrace(funcTraceFilePath)
+
+printSepline('Sequence of dispatch region call')
+for drName in dispatchRegionSequence:
+    print(drName)
+printSepline()
 
 ## 그래프 출력 ========================================================
 # Initialize plot

@@ -84,9 +84,9 @@ class InstStatTableEntry:
     
     def examine(self, ext=False):
         if ext:
-            print(f'[{self.name}] int: {self.int}, uint: {self.uint}, fp: {self.fp}, vec: {self.vec}, load: {self.load}, store: {self.store}')
+            print(f'[{self.name}] int: {self.int}, uint: {self.uint}, fp: {self.fp}, vec: {self.vec}, load: {self.load}, store: {self.store} --> total: {self.getTotal()}')
         else:
-            print(f'[{self.name}] int: {self.int}, uint: {self.uint}, fp: {self.fp}, vec: {self.vec}')
+            print(f'[{self.name}] int: {self.int}, uint: {self.uint}, fp: {self.fp}, vec: {self.vec} --> total: {self.getTotal(True)}')
         
     def getTotal(self, ext=False):
         if ext:
@@ -331,6 +331,20 @@ def examineSymbolTable(symTbl, filter=None):
             e.examine()
             entryCnt += 1
     print(f'>> Total {entryCnt} items\n')
+
+def createDispatchRegionTable(symTbl, drTbl):
+    entryCnt = 0
+    for e in symTbl:
+        if 'main_dispatch' in e.name:
+            drTbl.append(e)
+            entryCnt += 1
+    print(f'DispatchRegionTable has successfully constructed: total {entryCnt} items')
+
+def getDispatchRegionName(drTbl, addr):
+    for e in drTbl:
+        if e.value <= addr and addr <= e.value + e.size:
+            return e.name
+    return None
 
 class ObjectTableEntry:
     def __init__(self):
@@ -593,3 +607,6 @@ class AccessSequenceTable:
             print(f'{k:8}', end=' ')
             v.examine()
 
+    def getFirstInstructionCounter(self):
+        instCtr, astEntry = next(iter(self.tbl.items()))
+        return instCtr
