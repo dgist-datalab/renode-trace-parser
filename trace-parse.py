@@ -42,10 +42,6 @@ parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 args = parser.parse_args()
 
 ## 로그 파일명 설정
-LOCAL_LOG_PATH  = 'log'
-GLOBAL_LOG_PATH = '/home/euntae/tmp/renode-log'
-FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function'
-
 # logFilePath = LOCAL_LOG_PATH
 logFilePath = GLOBAL_LOG_PATH
 memConfig = 'default'

@@ -144,6 +144,18 @@ elif modelName == 'ecg_small':
     readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
     funcTraceFileName = 'ecg_small'
 
+elif modelName == 'mobilenet_v1':
+    logFileName = 'mobilenet_v1_mlir_20241113_203119'
+    headerFileName = 'mobilenet_v1_mlir_emitc_static_headers'
+    readelfFileName = 'mobilenet_v1_mlir_emitc_static_readelf'
+    funcTraceFileName = ''
+
+elif modelName == 'mobilebert':
+    logFileName = 'mobilebert_20241113_203119'
+    headerFileName = 'mobilebert_emitc_static_headers'
+    readelfFileName = 'mobilebert_emitc_static_readelf'
+    funcTraceFileName = ''
+
 astDumpFileName = ''
 if args.ast_input is not None:
     astDumpFileName = args.ast_input
