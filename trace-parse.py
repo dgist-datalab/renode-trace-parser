@@ -19,6 +19,7 @@ modelConfig = ''
 ## Initialize argparse ==============================================
 parser = argparse.ArgumentParser()
 
+parser.add_argument('--display-config-only', action='store_true')
 parser.add_argument('--plot-type-wise', action='store_true')
 parser.add_argument('--plot-ldst', action='store_true', help='Plot load/store instructions')
 parser.add_argument('--plot-arith', action='store_true', help='Plot arithmetic instructions')
@@ -201,7 +202,9 @@ print(f'headers file path: {headerFilePath}')
 print(f'readelf file path: {readelfFilePath}')
 print(f'function call trace file path: {funcTraceFilePath}')
 printSepline()
-#exit(0)
+
+if args.display_config_only:
+    exit(0)
 ## ==================================================================
 
 
