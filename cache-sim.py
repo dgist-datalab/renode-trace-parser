@@ -322,7 +322,7 @@ class CacheMem:
         # cache miss
         self.nmiss += 1
         if args.verbose:
-            print('>> miss', end='')
+            print(f'>> miss', end='')
             print()
         self.fetch(idx, tag)
 
@@ -482,7 +482,10 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
     #dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     #dataCache  = CacheMem(totalSize=256 * 1024, blockSize=4096, nways=64, replacePolicy=replace_policy)
     
-    dataCache  = CacheMem(totalSize=512 * 1024, blockSize=4096, nways=128, replacePolicy=replace_policy)
+    dTotalSize = 128 * 1024
+    dBlockSize = block_size
+    dNways     = int(dTotalSize / dBlockSize)
+    dataCache  = CacheMem(totalSize=dTotalSize, blockSize=dBlockSize, nways=dNways, replacePolicy=replace_policy)
 
     heapLowerAddress = 0
     heapUpperAddress = 0
@@ -530,7 +533,10 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
                 stackCache.lookup(v.addr)
             else:
                 dSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
-                dataCache.lookup(v.addr)
+                onHit = dataCache.lookup(v.addr)
+                if v.section == '.rodata' and not onHit:
+                    print(f'instCtr={k}, addr={v.addr:#8x}({v.object})')
+                    
         heapCache.localSST.append(hSST)
         stackCache.localSST.append(sSST)
         dataCache.localSST.append(dSST)
