@@ -1,4 +1,5 @@
 import re
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
@@ -28,7 +29,9 @@ parser.add_argument('--disable-plot', action='store_true')
 parser.add_argument('--disable-plot-section-boundary', action='store_true')
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
 parser.add_argument('--enable-stat-table', action='store_true', default=False, help='Enable construct StatTables (default=False)')
+#parser.add_argument('--enable-dispatch-region-table', action='store_true')
 parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Specify target model name (default={modelName})')
+parser.add_argument('--part', '-p', action='store', help='Number of partitioned trace (for large trace)')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('--ast-output', '-a', action='store', help='Dump AccessSequenceTable (AST) to specified file')
@@ -53,6 +56,10 @@ funcTraceFileName = ''
 
 modelName = args.model_name
 batchSize = args.batch_size
+
+partNum = -1
+if args.part is not None:
+    partNum = int(args.part)
 
 if modelName == 'fc_basic':
     if batchSize == 1:
@@ -81,21 +88,21 @@ if modelName == 'fc_basic':
 # 분석의 편의상 default만을 사용한다
 elif 'fc_triple' in modelName:
     if modelName == 'fc_triple_small':
-        logFileName = 'fc_triple_small_default_20241014_193642'
+        logFileName = 'fc_triple_small_20241208_220506'
         modelConfig = 'small'
     elif modelName == 'fc_triple_medium':
-        logFileName = 'fc_triple_medium_default_20241014_194008'
+        logFileName = 'fc_triple_medium_20241208_220321'
         modelConfig = 'medium'
     elif modelName == 'fc_triple_large':
-        logFileName = 'fc_triple_large_config1_20241014_194627'
+        logFileName = 'fc_triple_large_20241208_223442'
         modelConfig = 'large'
         memConfig = 'config1'
     elif modelName == 'fc_triple_xl':
-        logFileName = 'fc_triple_xl_config1_20241014_165044'
+        logFileName = 'fc_triple_xl_20241218_155509'
         modelConfig = 'xl'
         memConfig = 'config1'
     elif modelName == 'fc_triple_xxl':
-        logFileName = 'fc_triple_xxl_config1_20241014_202340'
+        logFileName = 'fc_triple_xxl_20241218_155656'
         modelConfig = 'xxl'
         memConfig = 'config1'
     elif modelName == 'fc_triple_huge':
@@ -117,45 +124,38 @@ elif 'fc_triple' in modelName:
     funcTraceFileName = f'{modelName}_{memConfig}'
 
 elif modelName == 'ecg_small':
-    # if args.without_custom:
-    #     logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
-    #     headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
-    #     readelfFileName = ''
-    #     funcTraceFileName = ''
-    #     print('E: ECG small without custom instruction is not supported yet:(')
-    #     exit(1)
-    # else:
-    logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
+    logFileName = 'ecg_small_20241208_203107' # binary, with arithmetic, with custom instructions
     headerFileName = 'ecg_small_fp32_emitc_static_headers'
     readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
     funcTraceFileName = 'ecg_small'
 
-# w/o custom instruction
-# elif modelName == 'mobilenet_v1':
-#     logFileName = 'mobilenet_v1_20241113_203002'
-#     headerFileName = 'mobilenet_v1_emitc_static_headers'
-#     readelfFileName = 'mobilenet_v1_emitc_static_readelf'
-#     funcTraceFileName = ''
-
 elif modelName == 'mobilenet_v1':
-    logFileName = 'mobilenet_v1_mlir_20241113_203119'
-    headerFileName = 'mobilenet_v1_mlir_emitc_static_headers'
-    readelfFileName = 'mobilenet_v1_mlir_emitc_static_readelf'
+    logFileName = 'mobilenet_v1_20241208_220017'
+    headerFileName = 'mobilenet_v1_emitc_static_headers'
+    readelfFileName = 'mobilenet_v1_emitc_static_readelf'
     funcTraceFileName = ''
 
-
 elif modelName == 'mobilebert':
-    logFileName = 'mobilebert_20241113_203119'
+    if partNum == -1:
+        logFileName = 'mobilebert_20241118_160735'
+    elif partNum == 0:
+        logFileName = 'mobilebert_0_653'
+    elif partNum == 1:
+        logFileName = 'mobilebert_654_1211'
+    elif partNum == 2:
+        logFileName = 'mobilebert_1212_1769'
+    else:
+        print(f'E: mobilebert part#{partNum} is not available')
+        exit(-1)
+		
     headerFileName = 'mobilebert_emitc_static_headers'
     readelfFileName = 'mobilebert_emitc_static_readelf'
     funcTraceFileName = ''
-
+    memConfig = 'config1'
+    
 else:
     print(f'The model {modelName} is not supported')
-
-# trace log 파일 경로 결정
-if 'ecg_small' in modelName:
-    logFilePath = LOCAL_LOG_PATH
+    exit(-1)
 
 logFileExt = '.bin'
 if args.human_readable:
@@ -164,7 +164,8 @@ if args.human_readable:
 pathName = logFilePath + '/' + logFileName + logFileExt
 
 # ELF header 및 symbol table 파일의 실제 경로 결정
-ELF_DUMP_BASE = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}'
+#ELF_DUMP_BASE = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}'
+ELF_DUMP_BASE = f'/home/euntae/renode/springbok-elfs/dumps_{memConfig}'
 HEADER_PATH   = f'{ELF_DUMP_BASE}/headers'
 READELF_PATH  = f'{ELF_DUMP_BASE}/readelf-sym'
 
@@ -174,7 +175,9 @@ funcTraceFilePath = f'{FUNC_TRACE_PATH}/{funcTraceFileName}.log'
 
 ## Test =============================================================
 printSepline('File information summary')
+print(f'matplotlib backend: {matplotlib.get_backend()}')
 print(f'model name: {modelName}')
+print(f'part number: {partNum}')
 print(f'model config: {modelConfig}')
 print(f'memConfig: "{memConfig}"')
 print(f'trace log file path: {pathName}')
@@ -318,14 +321,30 @@ if not dumpReadMode:
 imemAddrBase = getIMemBaseAddress(modelName)
 dmemAddrBase = getDMemBaseAddress(modelName)
 stackBase = getStackBaseAddress(modelName)
+
+imemLength = getIMemLength(modelName)
+dmemLength = getDMemLength(modelName)
+stackSize = getStackSize(modelName)
+
 plotData = DLPlotData()
 epilogue = ''
 
+secEntry = {}
+secEntry['.text']   = getSectionTableEntry(sectionTable, '.text')
+secEntry['.stack']  = getSectionTableEntry(sectionTable, '.stack')
+secEntry['.rodata'] = getSectionTableEntry(sectionTable, '.rodata')
+secEntry['.heap']   = getSectionTableEntry(sectionTable, '.heap')
+
 print(f'Model name: {modelName}')
-print(f'IMem base: {imemAddrBase: #08x}')
-print(f'DMem base: {dmemAddrBase: #08x}')
-print(f'Stack base: {stackBase: #08x}')
+print(f'IMem base: {imemAddrBase: #08x}, size: {imemLength} --> {imemAddrBase + imemLength:#08x}')
+print(f'DMem base: {dmemAddrBase: #08x}, size: {dmemLength} --> {dmemAddrBase + dmemLength:#08x}')
+print(f'Stack base: {stackBase: #08x}, size: {stackSize} --> {stackBase + stackSize:#08x}')
+print(f"section: .text, vma: {secEntry['.text'].vma:#08x}, size: {secEntry['.text'].size} --> {secEntry['.text'].vma + secEntry['.text'].size:#08x}")
+print(f"section: .rodata, vma: {secEntry['.rodata'].vma:#08x}, size: {secEntry['.rodata'].size} --> {secEntry['.rodata'].vma + secEntry['.rodata'].size:#08x}")
+print(f"section: .stack, vma: {secEntry['.stack'].vma:#08x}, size: {secEntry['.stack'].size} --> {secEntry['.stack'].vma + secEntry['.stack'].size:#08x}")
 print()
+
+# exit(0)
 
 loadCnt = 0
 storeCnt = 0
@@ -356,8 +375,10 @@ if dumpReadMode:
 
 else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
     print(f'Analyze {pathName}...')
-    plotData.pcLow = getIMemBaseAddress(modelName)
-    plotData.pcHigh = getIMemBaseAddress(modelName)
+    # plotData.pcLow = getIMemBaseAddress(modelName)
+    # plotData.pcHigh = getIMemBaseAddress(modelName)
+    plotData.pcLow  = secEntry['.text'].vma
+    plotData.pcHigh = secEntry['.text'].vma + secEntry['.text'].size
     startTime = time.time()
     if args.human_readable:
         # 패턴 매칭: 숫자 | 16진수 숫자 | pc=숫자 | addr=숫자
@@ -480,7 +501,11 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             trace = logFile.read(DL_TRACE_SIZE_COMPACT_MEM)
             if not trace:
                 break
-            ## traceV2: lower부만 변경 있음
+            
+            ## trace로부터 데이터 추출
+            # opType: load/store/arith/unknown
+            # dataType: sint/uint/float/vector
+            # operandSize: 8/16/32/64/128
             opType = trace[0] & 0b11
             dataType = (trace[0] >> 2) & 0b111
             operandSize = trace[0] >> 5
@@ -491,52 +516,65 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
 
             if args.verbose:
                 sys.stdout.write('\r' + '[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
-            if opType == 2 or dataType == 3 or opType == 3: # custom instruction도 opclass를 읽어야 한다
+            
+            # 산술 명령어 trace의 경우 14바이트 길이를 가지므로 1바이트를 추가로 읽는다
+            # vector/custom instruction도 부가정보인 opclass를 포함
+            if opType == 2 or dataType == 3 or opType == 3:
                 opclass = (logFile.read(1))[0]
                 if args.verbose:
                     sys.stdout.write('opclass: %#x' % opclass)
+
+            # --disable-plot 옵션 사용 시 plotData update 비활성화
+            if not args.disable_plot:
+                if opType == 0: # load
+                    if dataType == 0 or dataType == 1: # int
+                        plotData.loadX.append(instCtr)
+                        plotData.loadY.append(addr)
+                    elif dataType == 2: # float
+                        plotData.fploadX.append(instCtr)
+                        plotData.fploadY.append(addr)
+                    else: # vector
+                        plotData.vloadX.append(instCtr)
+                        plotData.vloadY.append(addr)
+                elif opType == 1: # store
+                    if dataType == 0 or dataType == 1: # int
+                        plotData.storeX.append(instCtr)
+                        plotData.storeY.append(addr)
+                    elif dataType == 2: # float
+                        plotData.fpstoreX.append(instCtr)
+                        plotData.fpstoreY.append(addr)
+                    else: # vector
+                        plotData.vstoreX.append(instCtr)
+                        plotData.vstoreY.append(addr)
+                elif opType == 2: # arith
+                    if dataType == 0 or dataType == 1:
+                        plotData.arithX.append(instCtr)
+                        plotData.arithY.append(addr)
+                    elif dataType == 2: # float
+                        plotData.fparithX.append(instCtr)
+                        plotData.fparithY.append(addr)
+                    else: # vector
+                        plotData.varithX.append(instCtr)
+                        plotData.varithY.append(addr)
+                else: # parsing error
+                    if opType != 3:
+                        print('E: unrecognized instruction:')
+                        print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
+                        exit(1)
             
-            # opType: load/store/arith/unknown
-            # dataType: sint/uint/float/vector
-            # operandSize: 8/16/32/64/128
-            if opType == 0: # load
-                if dataType == 0 or dataType == 1: # int
-                    plotData.loadX.append(instCtr)
-                    plotData.loadY.append(addr)
-                elif dataType == 2: # float
-                    plotData.fploadX.append(instCtr)
-                    plotData.fploadY.append(addr)
-                else: # vector
-                    plotData.vloadX.append(instCtr)
-                    plotData.vloadY.append(addr)
-            elif opType == 1: # store
-                if dataType == 0 or dataType == 1: # int
-                    plotData.storeX.append(instCtr)
-                    plotData.storeY.append(addr)
-                elif dataType == 2: # float
-                    plotData.fpstoreX.append(instCtr)
-                    plotData.fpstoreY.append(addr)
-                else: # vector
-                    plotData.vstoreX.append(instCtr)
-                    plotData.vstoreY.append(addr)
-            elif opType == 2: # arith
-                if dataType == 0 or dataType == 1:
-                    plotData.arithX.append(instCtr)
-                    plotData.arithY.append(addr)
-                elif dataType == 2: # float
-                    plotData.fparithX.append(instCtr)
-                    plotData.fparithY.append(addr)
-                else: # vector
-                    plotData.varithX.append(instCtr)
-                    plotData.varithY.append(addr)
-                if plotData.pcHigh < addr:
-                    plotData.pcHigh = addr
-            elif opType == 3: # custom/unknown
+            # if opType == 2 and plotData.pcHigh < addr:
+            #     plotData.pcHigh = addr
+
+            # --disable-plot 옵션과 무관하게 처리
+            if opType == 3: # custom/unknown
                 # region index나 dr.begin, dr.end 제어 정보는 여기에서 처리할 것
                 # 실제 StatTable entry 삽입 등의 연산은 enable_section_stat 부분에서 처리
-                # TODO: custom instruction의 경우 opclass에 따라 세분화할 것
-                # unknown은 무시할 수 있다
-                # if opclass & 0b11100000:
+                # custom instruction 간의 식별은 opclass 필드 이용
+                # - opclass[1:0]: identify custom-0/1/2/3
+                # - opclass[4:2]: funct3
+                # - opclass[7:5]: reserved; 0b111 on unknown
+                # unknown은 일단 무시
+
                 plotData.customX.append(instCtr)
                 plotData.customY.append(addr)
                 plotData.customOpclass.append(opclass)
@@ -549,18 +587,14 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         curDispatchRegion += 1
                         curDispatchRegionName = getDispatchRegionName(dispatchRegionTable, addr)
                         dispatchRegionSequence.append(curDispatchRegionName)
-                        print(f'Dispatch region #{curDispatchRegion} begin: instCtr={instCtr}, addr={addr:#8x}, name={curDispatchRegionName}')
+                        print(f'Dispatch region #{curDispatchRegion} begin: instCtr={instCtr}, file pointer={logFile.tell()}, name={curDispatchRegionName} at {addr:#8x}')
                         onDispatchRegion = True
 
                     elif funct3 == 1: #dr.end
                         curRegion += 1
                         curHostRegion += 1
-                        print(f'Dispatch region #{curDispatchRegion} end: instCtr={instCtr}, addr={addr:#8x}')
+                        print(f'Dispatch region #{curDispatchRegion} end: instCtr={instCtr}, file pointer={logFile.tell()}, name={curDispatchRegionName} at {addr:#8x}')
                         onDispatchRegion = False
-            else: # parsing error
-                print('E: unrecognized instruction:')
-                print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
-                exit(1)
             
             ## StatTable류 생성 허용
             # curDispatchRegion: 현재 dispatch region 인덱스
@@ -614,17 +648,17 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
 
             ## Update segment boundary
             # 이미 섹션 테이블이 있는데 이 부분 필요할까? (나중에 deprecate 시킬 것)
-            if opType == 0 or opType == 1: # load/store
-                if addr >= stackBase: # stack
-                    if plotData.stackAddrHigh < addr:
-                        plotData.stackAddrHigh = addr
-                    if plotData.stackAddrLow > addr:
-                        plotData.stackAddrLow = addr
-                else: # data
-                    if plotData.dataAddrHigh < addr:
-                        plotData.dataAddrHigh = addr
-                    if plotData.dataAddrLow > addr:
-                        plotData.dataAddrLow = addr
+            # if opType == 0 or opType == 1: # load/store
+            #     if addr >= stackBase: # stack
+            #         if plotData.stackAddrHigh < addr:
+            #             plotData.stackAddrHigh = addr
+            #         if plotData.stackAddrLow > addr:
+            #             plotData.stackAddrLow = addr
+            #     else: # data
+            #         if plotData.dataAddrHigh < addr:
+            #             plotData.dataAddrHigh = addr
+            #         if plotData.dataAddrLow > addr:
+            #             plotData.dataAddrLow = addr
             # End of while loop (in binary trace mode)
 
         lastInstCtr = instCtr
@@ -656,6 +690,8 @@ print('## PC    ##')
 print('address (low) : %x' % plotData.pcLow)
 print('address (high): %x' % plotData.pcHigh)
 print('--> %d KB\n' % ((plotData.pcHigh - plotData.pcLow) / 1024))
+
+# exit(0)
 
 # 캐시 시뮬레이터용: 생성된 AST를 파일로 덤프한다
 if args.ast_output is not None:
@@ -749,8 +785,8 @@ printSepline()
 # Initialize plot
 print()
 
-if args.disable_plot:
-    exit(0)
+# if args.disable_plot:
+#     exit(0)
 
 print('Plotting graphs...')
 

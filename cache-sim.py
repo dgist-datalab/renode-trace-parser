@@ -170,8 +170,9 @@ logFileExt = '.bin'
 pathName = logFilePath + '/' + logFileName + logFileExt
 
 # ELF header 및 symbol table 파일의 실제 경로 결정
-HEADER_PATH = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/headers'
-READELF_PATH = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}/readelf-sym'
+ELF_DUMP_BASE = f'/home/euntae/renode/springbok-elfs/dumps_{memConfig}'
+HEADER_PATH   = f'{ELF_DUMP_BASE}/headers'
+READELF_PATH  = f'{ELF_DUMP_BASE}/readelf-sym'
 
 headerFilePath = f'{HEADER_PATH}/{headerFileName}.dump'
 readelfFilePath = f'{READELF_PATH}/{readelfFileName}.dump'

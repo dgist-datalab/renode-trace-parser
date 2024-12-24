@@ -67,6 +67,12 @@ def getSectionName(secTbl, addr):
             return s.name
     return None
 
+def getSectionTableEntry(secTbl, name):
+    for entry in secTbl:
+        if entry.name == name:
+            return entry
+    return None
+
 INST_STAT_LOAD = 10
 INST_STAT_STORE = 11
 

@@ -2,7 +2,8 @@ DL_TRACE_SIZE_COMPACT_MEM = 13
 DL_TRACE_SIZE_COMPACT_ARITH = 14
 
 LOCAL_LOG_PATH  = 'log'
-GLOBAL_LOG_PATH = '/home/euntae/tmp/renode-log'
+#GLOBAL_LOG_PATH = '/home/euntae/tmp/renode-log'
+GLOBAL_LOG_PATH = '/home/euntae/renode-trace/instruction'
 FUNC_TRACE_PATH = '/home/euntae/tmp/renode-trace/function'
 
 # samples/{ModelName}/CMakeLists.txt 참조
@@ -30,7 +31,7 @@ def getStackSize(model_name='ecg_small'):
         return 200 * 1024 # 200K
     elif model_name == 'mnist':
         return 100 * 1024 # 100K
-    elif model_name == 'mobilenet':
+    elif model_name == 'mobilenet' or model_name == 'mobilenet_v1':
         return 200 * 1024 # 200K
     elif model_name == 'mobilenet_quant':
         return 300 * 1024 # 300K
