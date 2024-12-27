@@ -1,8 +1,8 @@
 import re
-import matplotlib
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import numpy as np
+# import matplotlib
+# import matplotlib.pyplot as plt
+# import matplotlib.ticker as ticker
+# import numpy as np
 import sys
 import os.path
 import pickle
@@ -30,8 +30,9 @@ parser.add_argument('--disable-plot-section-boundary', action='store_true')
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
 parser.add_argument('--enable-stat-table', action='store_true', default=False, help='Enable construct StatTables (default=False)')
 #parser.add_argument('--enable-dispatch-region-table', action='store_true')
-parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Specify target model name (default={modelName})')
+parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Target model name (default={modelName})')
 parser.add_argument('--part', '-p', action='store', help='Number of partitioned trace (for large trace)')
+parser.add_argument('--sample', '-s', action='store', help='Sampling interval')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('--ast-output', '-a', action='store', help='Dump AccessSequenceTable (AST) to specified file')
@@ -175,7 +176,7 @@ funcTraceFilePath = f'{FUNC_TRACE_PATH}/{funcTraceFileName}.log'
 
 ## Test =============================================================
 printSepline('File information summary')
-print(f'matplotlib backend: {matplotlib.get_backend()}')
+#print(f'matplotlib backend: {matplotlib.get_backend()}')
 print(f'model name: {modelName}')
 print(f'part number: {partNum}')
 print(f'model config: {modelConfig}')
@@ -364,6 +365,15 @@ arithCntTotal = 0
 
 lastInstCtr = 0
 
+sampleInterval = -1
+if args.sample is not None:
+    sampleInterval = int(args.sample)
+    if sampleInterval <= 1:
+        print('Warning: sampleInterval <= 1; sampling mode is disabled')
+        sampleInterval = -1
+sampleCnt = 0
+nsamples = 0
+
 if dumpReadMode:
     plotData = pickle.load(dumpFile)
     plotData.displayBoundary()
@@ -525,7 +535,9 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     sys.stdout.write('opclass: %#x' % opclass)
 
             # --disable-plot 옵션 사용 시 plotData update 비활성화
-            if not args.disable_plot:
+            if not args.disable_plot and ((sampleInterval < 1) or (sampleInterval > 1 and sampleCnt == 0)):
+                sampleCnt = sampleInterval
+                nsamples += 1
                 if opType == 0: # load
                     if dataType == 0 or dataType == 1: # int
                         plotData.loadX.append(instCtr)
@@ -661,6 +673,9 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             #             plotData.dataAddrLow = addr
             # End of while loop (in binary trace mode)
 
+            if sampleInterval > 1:
+                sampleCnt -= 1
+
         lastInstCtr = instCtr
         plotData.totalInstCnt = lastInstCtr + 100
         print(f'Last instruction counter: {lastInstCtr}')
@@ -668,9 +683,10 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
     # End of trace analysis
 
     endTime = time.time()
+    traceProcessTime = endTime - startTime
     logFile.close()
     print('Trace analyzing has been completed')
-    print(f'Elapsed time: {endTime - startTime:.5f} sec')
+    print(f'[Trace Analysis] elapsed time: {traceProcessTime:.5f} sec')
     
 if args.human_readable and dumpReadMode:
     print()
@@ -773,24 +789,26 @@ if args.enable_stat_table:
 # print('## FunctionStatTables ##')
 # loadFunctionTrace(funcTraceFilePath)
 
-printSepline('Sequence of dispatch region call')
-drCnt = 0
-for drName in dispatchRegionSequence:
-    print(drName)
-    drCnt += 1
-print(f'>> Total {drCnt} dispatch regions')
-printSepline()
+# printSepline('Sequence of dispatch region call')
+# drCnt = 0
+# for drName in dispatchRegionSequence:
+#     print(drName)
+#     drCnt += 1
+# print(f'>> Total {drCnt} dispatch regions')
+# printSepline()
 
 ## 그래프 출력 ========================================================
 # Initialize plot
 print()
 
-# if args.disable_plot:
-#     exit(0)
+if args.disable_plot:
+    print(f'[Trace Analysis] elapsed time: {traceProcessTime:.5f} sec')
+    exit(0)
 
 print('Plotting graphs...')
+startTime = time.time()
 
-# 옵션을 명시하지 않을 경우 둘 다 출력
+# 옵션을 명시하지 않을 경우 둘 다 참으로 처리 (기본값)
 if (not args.plot_ldst) and (not args.plot_arith):
     args.plot_ldst = True
     args.plot_arith = True
@@ -833,4 +851,12 @@ else:
 # 		fig2.savefig(figFileName, bbox_inches=extent, dpi=100)
 
 #plt.tight_layout()
+
+# plt.close()
+endTime = time.time()
+plotTime = endTime - startTime
+print(f'Total {nsamples} samples are processed')
+print(f'[Trace Analysis] elapsed time: {traceProcessTime:.5f} sec')
+print(f'[Plot] elapsed time: {plotTime:.5f} sec')
 plt.show()
+

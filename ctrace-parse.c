@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include <time.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 #include "DLTrace.h"
 
@@ -54,6 +55,8 @@ int main(int argc, char **argv) {
     FILE *logFile     = NULL;
     FILE *headerFile  = NULL;
     FILE *readelfFile = NULL;
+
+    clock_t startTime, endTime;
 
     if (argc < 2) {
         // m: model name
@@ -127,6 +130,15 @@ int main(int argc, char **argv) {
 			case 2: // DR#1212-1769
 				logFileName = "mobilebert_1212_1769";
 				break;
+            case 3: // DR#1770-2327
+                logFileName = "mobilebert_1770_2327";
+                break;
+            case 100: // DR#12372-12929
+                logFileName = "mobilebert_12372_12929";
+                break;
+            case 101: // DR#12930-13491
+                logFileName = "mobilebert_12930_13491";
+                break;
 			default:
 				fprintf(stderr, "E: part#%d is not available\n", part);
 				return -1;
@@ -189,6 +201,8 @@ int main(int argc, char **argv) {
     // opType: load/store/arith/custom
     // dataType: sint/uint/float/vector
     // operandSize: 8/16/32/64/128
+
+    startTime = clock();
     while (!feof(logFile)) {
         if (ntraces != 0 && ntraces == icnt)
             break;
@@ -248,8 +262,12 @@ int main(int argc, char **argv) {
         }
         icnt++;
     }
+    
+    endTime = clock();
+    double cpuTimeUsed = ((double)(endTime - startTime)) / CLOCKS_PER_SEC;
 
     printf("total %lu traces\n", icnt);
+    printf("Elapsed time: %lf\n", cpuTimeUsed);
 
     fclose(logFile);
     return 0;

@@ -191,12 +191,21 @@ def plotLdstSep(modelName, secTbl, plotData, typeWise=False):
     fig1.canvas.manager.set_window_title(f'{modelName}: memory access trace')
     initPlotFormat(axs1, plotData, model_name=modelName)
     plotSectionBoundary(modelName, secTbl, axs1)
-    axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
-    axs1.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
-    axs1.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
-    axs1.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
-    axs1.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
-    axs1.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+    # axs1.scatter(plotData.loadX, plotData.loadY, color=plotColor['load'], s=1)
+    # axs1.scatter(plotData.storeX, plotData.storeY, color=plotColor['store'], s=1)
+    # axs1.scatter(plotData.fploadX, plotData.fploadY, color=plotColor['fpload'], s=1)
+    # axs1.scatter(plotData.fpstoreX, plotData.fpstoreY, color=plotColor['fpstore'], s=1)
+    # axs1.scatter(plotData.vloadX, plotData.vloadY, color=plotColor['vload'], s=1)
+    # axs1.scatter(plotData.vstoreX, plotData.vstoreY, color=plotColor['vstore'], s=1)
+    
+    #print(np.array(plotData.loadX))
+
+    axs1.scatter(np.array(plotData.loadX), np.array(plotData.loadY), color=plotColor['load'], s=1)
+    axs1.scatter(np.array(plotData.storeX), np.array(plotData.storeY), color=plotColor['store'], s=1)
+    axs1.scatter(np.array(plotData.fploadX), np.array(plotData.fploadY), color=plotColor['fpload'], s=1)
+    axs1.scatter(np.array(plotData.fpstoreX), np.array(plotData.fpstoreY), color=plotColor['fpstore'], s=1)
+    axs1.scatter(np.array(plotData.vloadX), np.array(plotData.vloadY), color=plotColor['vload'], s=1)
+    axs1.scatter(np.array(plotData.vstoreX), np.array(plotData.vstoreY), color=plotColor['vstore'], s=1)
     axs1.set_title('Memory access trace (all)')
 
     if not typeWise:
