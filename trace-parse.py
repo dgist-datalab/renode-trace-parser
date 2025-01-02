@@ -31,11 +31,12 @@ parser.add_argument('--human-readable', action='store_true', help='Read from hum
 parser.add_argument('--enable-stat-table', action='store_true', default=False, help='Enable construct StatTables (default=False)')
 #parser.add_argument('--enable-dispatch-region-table', action='store_true')
 parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Target model name (default={modelName})')
-parser.add_argument('--part', '-p', action='store', help='Number of partitioned trace (for large trace)')
+parser.add_argument('--part', '-p', action='store', type=int, help='Number of partitioned trace (for large trace)')
 parser.add_argument('--sample', '-s', action='store', help='Sampling interval')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('--ast-output', '-a', action='store', help='Dump AccessSequenceTable (AST) to specified file')
+parser.add_argument('--env', action='store', default='desktop', help='Execution environment (default: desktop)')
 
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 #parser.add_argument('--without-custom', action='store_true')
@@ -45,146 +46,22 @@ parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 #parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 args = parser.parse_args()
 
-## 로그 파일명 설정
-# logFilePath = LOCAL_LOG_PATH
-logFilePath = GLOBAL_LOG_PATH
-memConfig = 'default'
-#memConfigSuffix = '_default' # default='default'
-logFileName = ''
-headerFileName = ''
-readelfFileName = ''
-funcTraceFileName = ''
-
+## 파일명 불러오기
 modelName = args.model_name
-batchSize = args.batch_size
+logFilePath, headerFilePath, readelfFilePath = getFilePath(args)
 
-partNum = -1
-if args.part is not None:
-    partNum = int(args.part)
-
-if modelName == 'fc_basic':
-    if batchSize == 1:
-        logFileName = 'fc_basic_20240909_171650_batch1'
-    elif batchSize == 4:
-        logFileName = 'fc_basic_20240909_171747_batch4'
-    elif batchSize == 8:
-        logFileName = 'fc_basic_20240909_172026_batch8'
-    elif batchSize == 16:
-        logFileName = 'fc_basic_20240909_172133_batch16'
-    elif batchSize == 32:
-        logFileName = 'fc_basic_20240909_172400_batch32'
-    elif batchSize == 128:
-        logFileName = 'fc_basic_20240909_172615_batch128'
-    elif batchSize == 512:
-        logFileName = 'fc_basic_20240911_144402_batch512'
-    else:
-        print('E: %s, batch=%d is not available' % (modelName, batchSize))
-        exit(1)
-    headerFileName = 'fc_basic_emitc_static_batch%d_headers' % batchSize
-    readelfFileName = 'fc_basic_emitc_static_batch%d_readelf' % batchSize
-    funcTraceFileName = 'fc_basic_%d' % batchSize
-
-## FC triple
-# FC triple small, medium은 default, config1에서 실행한 결과를 동시에 가지고 있지만, 
-# 분석의 편의상 default만을 사용한다
-elif 'fc_triple' in modelName:
-    if modelName == 'fc_triple_small':
-        logFileName = 'fc_triple_small_20241208_220506'
-        modelConfig = 'small'
-    elif modelName == 'fc_triple_medium':
-        logFileName = 'fc_triple_medium_20241208_220321'
-        modelConfig = 'medium'
-    elif modelName == 'fc_triple_large':
-        logFileName = 'fc_triple_large_20241208_223442'
-        modelConfig = 'large'
-        memConfig = 'config1'
-    elif modelName == 'fc_triple_xl':
-        logFileName = 'fc_triple_xl_20241218_155509'
-        modelConfig = 'xl'
-        memConfig = 'config1'
-    elif modelName == 'fc_triple_xxl':
-        logFileName = 'fc_triple_xxl_20241218_155656'
-        modelConfig = 'xxl'
-        memConfig = 'config1'
-    elif modelName == 'fc_triple_huge':
-        logFileName = ''
-        modelConfig = 'huge'
-        memConfig = ''
-        print('E: FC triple huge is not supported yet:(')
-        exit(1)
-    else:
-        print(f'E: model {modelName} is not available')
-        exit(1)
-
-    #print(f'memConfig: {memConfig}')
-    # if memConfig != '': # 빈 문자열인 경우 기본값인 _default
-    #     memConfigSuffix = '_' + memConfig
-
-    headerFileName = f'fc_triple_{modelConfig}_emitc_static_headers'
-    readelfFileName = f'fc_triple_{modelConfig}_emitc_static_readelf'
-    funcTraceFileName = f'{modelName}_{memConfig}'
-
-elif modelName == 'ecg_small':
-    logFileName = 'ecg_small_20241208_203107' # binary, with arithmetic, with custom instructions
-    headerFileName = 'ecg_small_fp32_emitc_static_headers'
-    readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
-    funcTraceFileName = 'ecg_small'
-
-elif modelName == 'mobilenet_v1':
-    logFileName = 'mobilenet_v1_20241208_220017'
-    headerFileName = 'mobilenet_v1_emitc_static_headers'
-    readelfFileName = 'mobilenet_v1_emitc_static_readelf'
-    funcTraceFileName = ''
-
-elif modelName == 'mobilebert':
-    if partNum == -1:
-        logFileName = 'mobilebert_20241118_160735'
-    elif partNum == 0:
-        logFileName = 'mobilebert_0_653'
-    elif partNum == 1:
-        logFileName = 'mobilebert_654_1211'
-    elif partNum == 2:
-        logFileName = 'mobilebert_1212_1769'
-    else:
-        print(f'E: mobilebert part#{partNum} is not available')
-        exit(-1)
-		
-    headerFileName = 'mobilebert_emitc_static_headers'
-    readelfFileName = 'mobilebert_emitc_static_readelf'
-    funcTraceFileName = ''
-    memConfig = 'config1'
-    
-else:
-    print(f'The model {modelName} is not supported')
-    exit(-1)
-
-logFileExt = '.bin'
-if args.human_readable:
-    logFileExt = '.txt'
-
-pathName = logFilePath + '/' + logFileName + logFileExt
-
-# ELF header 및 symbol table 파일의 실제 경로 결정
-#ELF_DUMP_BASE = f'/home/euntae/tmp/springbok-samples-elfs-dump_{memConfig}'
-ELF_DUMP_BASE = f'/home/euntae/renode/springbok-elfs/dumps_{memConfig}'
-HEADER_PATH   = f'{ELF_DUMP_BASE}/headers'
-READELF_PATH  = f'{ELF_DUMP_BASE}/readelf-sym'
-
-headerFilePath = f'{HEADER_PATH}/{headerFileName}.dump'
-readelfFilePath = f'{READELF_PATH}/{readelfFileName}.dump'
-funcTraceFilePath = f'{FUNC_TRACE_PATH}/{funcTraceFileName}.log'
-
-## Test =============================================================
-printSepline('File information summary')
-#print(f'matplotlib backend: {matplotlib.get_backend()}')
-print(f'model name: {modelName}')
-print(f'part number: {partNum}')
-print(f'model config: {modelConfig}')
-print(f'memConfig: "{memConfig}"')
-print(f'trace log file path: {pathName}')
-print(f'headers file path: {headerFilePath}')
-print(f'readelf file path: {readelfFilePath}')
-print(f'function call trace file path: {funcTraceFilePath}')
+## Display configuration ============================================
+printSepline('Configuration summary')
+# print(f'matplotlib backend: {matplotlib.get_backend()}')
+# print(f'model name: {modelName}')
+# print(f'part number: {partNum}')
+# print(f'model config: {modelConfig}')
+# print(f'memConfig: "{memConfig}"')
+# print(f'function call trace file path: {funcTraceFilePath}')
+print(f'Environment: {args.env}')
+print(f'Instruction trace file path: {logFilePath}')
+print(f'Headers file path: {headerFilePath}')
+print(f'ReadELF file path: {readelfFilePath}')
 printSepline()
 
 if args.display_config_only:
@@ -537,42 +414,49 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             # --disable-plot 옵션 사용 시 plotData update 비활성화
             if not args.disable_plot and ((sampleInterval < 1) or (sampleInterval > 1 and sampleCnt == 0)):
                 sampleCnt = sampleInterval
-                nsamples += 1
+                
                 if opType == 0: # load
-                    if dataType == 0 or dataType == 1: # int
-                        plotData.loadX.append(instCtr)
-                        plotData.loadY.append(addr)
-                    elif dataType == 2: # float
-                        plotData.fploadX.append(instCtr)
-                        plotData.fploadY.append(addr)
-                    else: # vector
-                        plotData.vloadX.append(instCtr)
-                        plotData.vloadY.append(addr)
+                    if args.plot_ldst:
+                        nsamples += 1
+                        if dataType == 0 or dataType == 1: # int
+                            plotData.loadX.append(instCtr)
+                            plotData.loadY.append(addr)
+                        elif dataType == 2: # float
+                            plotData.fploadX.append(instCtr)
+                            plotData.fploadY.append(addr)
+                        else: # vector
+                            plotData.vloadX.append(instCtr)
+                            plotData.vloadY.append(addr)
                 elif opType == 1: # store
-                    if dataType == 0 or dataType == 1: # int
-                        plotData.storeX.append(instCtr)
-                        plotData.storeY.append(addr)
-                    elif dataType == 2: # float
-                        plotData.fpstoreX.append(instCtr)
-                        plotData.fpstoreY.append(addr)
-                    else: # vector
-                        plotData.vstoreX.append(instCtr)
-                        plotData.vstoreY.append(addr)
+                    if args.plot_ldst:
+                        nsamples += 1
+                        if dataType == 0 or dataType == 1: # int
+                            plotData.storeX.append(instCtr)
+                            plotData.storeY.append(addr)
+                        elif dataType == 2: # float
+                            plotData.fpstoreX.append(instCtr)
+                            plotData.fpstoreY.append(addr)
+                        else: # vector
+                            plotData.vstoreX.append(instCtr)
+                            plotData.vstoreY.append(addr)
                 elif opType == 2: # arith
-                    if dataType == 0 or dataType == 1:
-                        plotData.arithX.append(instCtr)
-                        plotData.arithY.append(addr)
-                    elif dataType == 2: # float
-                        plotData.fparithX.append(instCtr)
-                        plotData.fparithY.append(addr)
-                    else: # vector
-                        plotData.varithX.append(instCtr)
-                        plotData.varithY.append(addr)
+                    if args.plot_arith:
+                        nsamples += 1
+                        if dataType == 0 or dataType == 1:
+                            plotData.arithX.append(instCtr)
+                            plotData.arithY.append(addr)
+                        elif dataType == 2: # float
+                            plotData.fparithX.append(instCtr)
+                            plotData.fparithY.append(addr)
+                        else: # vector
+                            plotData.varithX.append(instCtr)
+                            plotData.varithY.append(addr)
+                elif opType == 3: # custom
+                    nsamples += 1
                 else: # parsing error
-                    if opType != 3:
-                        print('E: unrecognized instruction:')
-                        print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
-                        exit(1)
+                    print('E: unrecognized instruction:')
+                    print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
+                    exit(1)
             
             # if opType == 2 and plotData.pcHigh < addr:
             #     plotData.pcHigh = addr
@@ -623,13 +507,14 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     localOST[curRegion].put(objectTable, opType, dataType, addr)
                     localAST[curRegion].put(sectionTable, objectTable, instCtr, addr, opType, dataType, operandSize)
 
-                    if opType == 0: # load
-                        instStatTable.put(curRegion, INST_STAT_LOAD)
-                    else:
-                        instStatTable.put(curRegion, INST_STAT_STORE)
+                ## Disable InstStatTable (IST)...
+                #     if opType == 0: # load
+                #         instStatTable.put(curRegion, INST_STAT_LOAD)
+                #     else:
+                #         instStatTable.put(curRegion, INST_STAT_STORE)
 
-                elif opType == 2: # arith
-                    instStatTable.put(curRegion, dataType)
+                # elif opType == 2: # arith
+                #     instStatTable.put(curRegion, dataType)
 
                 elif opType == 3: # custom
                     #globalSectionAccessTable
@@ -653,9 +538,10 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         ast.name = stName
                         localAST.append(ast)
 
-                        istEntry = InstStatTableEntry()
-                        istEntry.name = stName
-                        instStatTable.tbl.append(istEntry)
+                        ## Disable IST...
+                        # istEntry = InstStatTableEntry()
+                        # istEntry.name = stName
+                        # instStatTable.tbl.append(istEntry)
 
 
             ## Update segment boundary
@@ -763,10 +649,11 @@ if args.enable_stat_table:
     printSepline()
     print()
 
-    printSepline('InstStatTable')
-    instStatTable.examine(True)
-    printSepline()
-    print()
+    ## Disable IST...
+    # printSepline('InstStatTable')
+    # instStatTable.examine(True)
+    # printSepline()
+    # print()
     
     if args.verbose:
         print('## AccessSequenceTables ##')

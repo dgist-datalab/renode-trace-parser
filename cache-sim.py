@@ -20,13 +20,16 @@ modelConfig = ''
 ## Initialize argparse ==============================================
 parser = argparse.ArgumentParser()
 
-#parser.add_argument('--separate', action='store_true', help='All subplots are rendered in separate windows')
+parser.add_argument('--env', action='store', default='desktop', help='Execution environment (default: desktop)')
+parser.add_argument('--display-config-only', action='store_true')
+parser.add_argument('--verbose', '-v', action='store_true')
+parser.add_argument('--use-ast', action='store_true')
+parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
+
 parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Specify the target model name (default={modelName})')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify the batch size (default={batchSize})')
-#parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
-#parser.add_argument('--disable-plot-section-boundary', action='store_true')
-parser.add_argument('--verbose', '-v', action='store_true')
-parser.add_argument('--ast-input', '-a', action='store')
+parser.add_argument('--part', action='store', type=int, help='Number of partitioned trace (for large trace)')
+
 parser.add_argument('--cache-size', '-s', action='store', default='32k', help='Specify the entire cache size e.g., 32k, 8M (default=32k)')
 parser.add_argument('--cache-block-size', '-b', action='store', type=int, default=64, help='Specify the byte size of a cache block (default=64)')
 parser.add_argument('--nways', '-w', action='store', type=int, default=8, help='Specify the number of ways (default=8)')
@@ -66,129 +69,20 @@ funcTraceFileName = ''
 modelName = args.model_name
 batchSize = args.batch_size
 
-#print(f'Model name: {modelName}')
-
-if modelName == 'fc_basic':
-    if batchSize == 1:
-        logFileName = 'fc_basic_20240909_171650_batch1'
-    elif batchSize == 4:
-        logFileName = 'fc_basic_20240909_171747_batch4'
-    elif batchSize == 8:
-        logFileName = 'fc_basic_20240909_172026_batch8'
-    elif batchSize == 16:
-        logFileName = 'fc_basic_20240909_172133_batch16'
-    elif batchSize == 32:
-        logFileName = 'fc_basic_20240909_172400_batch32'
-    elif batchSize == 128:
-        logFileName = 'fc_basic_20240909_172615_batch128'
-    elif batchSize == 512:
-        logFileName = 'fc_basic_20240911_144402_batch512'
-    else:
-        print('E: %s, batch=%d is not available' % (modelName, batchSize))
-        exit(1)
-    headerFileName = 'fc_basic_emitc_static_batch%d_headers' % batchSize
-    readelfFileName = 'fc_basic_emitc_static_batch%d_readelf' % batchSize
-    funcTraceFileName = 'fc_basic_%d' % batchSize
-
-## FC triple
-# FC triple small, medium은 default, config1에서 실행한 결과를 동시에 가지고 있지만, 
-# 분석의 편의상 default만을 사용한다
-elif 'fc_triple' in modelName:
-    if modelName == 'fc_triple_small':
-        logFileName = 'fc_triple_small_default_20241014_193642'
-        modelConfig = 'small'
-    elif modelName == 'fc_triple_medium':
-        logFileName = 'fc_triple_medium_default_20241014_194008'
-        modelConfig = 'medium'
-    elif modelName == 'fc_triple_large':
-        logFileName = 'fc_triple_large_config1_20241014_194627'
-        modelConfig = 'large'
-        memConfig = 'config1'
-    elif modelName == 'fc_triple_xl':
-        logFileName = 'fc_triple_xl_config1_20241014_165044'
-        modelConfig = 'xl'
-        memConfig = 'config1'
-    elif modelName == 'fc_triple_xxl':
-        logFileName = 'fc_triple_xxl_config1_20241014_202340'
-        modelConfig = 'xxl'
-        memConfig = 'config1'
-    elif modelName == 'fc_triple_huge':
-        logFileName = ''
-        modelConfig = 'huge'
-        memConfig = ''
-        print('E: FC triple huge is not supported yet:(')
-        exit(1)
-    else:
-        print(f'E: model {modelName} is not available')
-        exit(1)
-
-    #print(f'memConfig: {memConfig}')
-    # if memConfig != '': # 빈 문자열인 경우 기본값인 _default
-    #     memConfigSuffix = '_' + memConfig
-
-    headerFileName = f'fc_triple_{modelConfig}_emitc_static_headers'
-    readelfFileName = f'fc_triple_{modelConfig}_emitc_static_readelf'
-    funcTraceFileName = f'{modelName}_{memConfig}'
-
-elif modelName == 'ecg_small':
-    # if args.without_custom:
-    #     logFileName = 'ecg_small_20240911_162931' # binary, with arithmetic, no custom instructions
-    #     headerFileName = 'ecg_small_fp32_emitc_static_no_custom_headers'
-    #     readelfFileName = ''
-    #     funcTraceFileName = ''
-    #     print('E: ECG small without custom instruction is not supported yet:(')
-    #     exit(1)
-    # else:
-    logFileName = 'ecg_small_20240906_165242' # binary, with arithmetic, with custom instructions
-    headerFileName = 'ecg_small_fp32_emitc_static_headers'
-    readelfFileName = 'ecg_small_fp32_emitc_static_readelf'
-    funcTraceFileName = 'ecg_small'
-
-elif modelName == 'mobilenet_v1':
-    logFileName = 'mobilenet_v1_mlir_20241113_203119'
-    headerFileName = 'mobilenet_v1_mlir_emitc_static_headers'
-    readelfFileName = 'mobilenet_v1_mlir_emitc_static_readelf'
-    funcTraceFileName = ''
-
-elif modelName == 'mobilebert':
-    logFileName = 'mobilebert_20241113_203119'
-    headerFileName = 'mobilebert_emitc_static_headers'
-    readelfFileName = 'mobilebert_emitc_static_readelf'
-    funcTraceFileName = ''
-
-astDumpFileName = ''
-if args.ast_input is not None:
-    astDumpFileName = args.ast_input
-
-astDumpFilePath = f'dump/{astDumpFileName}.ast'
-
 # trace log 파일 경로 결정
-if 'fc_triple' in modelName:
-    logFilePath = rt.GLOBAL_LOG_PATH
+logFilePath, headerFilePath, readelfFilePath = rt.getFilePath(args)
+astFilePath = rt.getASTFilePath(args)
 
-logFileExt = '.bin'
-pathName = logFilePath + '/' + logFileName + logFileExt
-
-# ELF header 및 symbol table 파일의 실제 경로 결정
-ELF_DUMP_BASE = f'/home/euntae/renode/springbok-elfs/dumps_{memConfig}'
-HEADER_PATH   = f'{ELF_DUMP_BASE}/headers'
-READELF_PATH  = f'{ELF_DUMP_BASE}/readelf-sym'
-
-headerFilePath = f'{HEADER_PATH}/{headerFileName}.dump'
-readelfFilePath = f'{READELF_PATH}/{readelfFileName}.dump'
-funcTraceFilePath = f'{rt.FUNC_TRACE_PATH}/{funcTraceFileName}.log'
-
-## Test =============================================================
-printSepline('File information summary')
-print(f'model name: {modelName}')
-print(f'model config: {modelConfig}')
-print(f'memConfig: "{memConfig}"')
-print(f'trace log file path: {pathName}')
-print(f'headers file path: {headerFilePath}')
-print(f'readelf file path: {readelfFilePath}')
-print(f'function call trace file path: {funcTraceFilePath}')
-print(f'AccessSequenceTable dump file path: {astDumpFilePath}')
+## Display configuration ============================================
+printSepline('Configuration summary')
+print(f'Environment: {args.env}')
+print(f'Instruction trace file path: {logFilePath}')
+print(f'Headers file path: {headerFilePath}')
+print(f'ReadELF file path: {readelfFilePath}')
+print(f'AST file path: {astFilePath}')
 printSepline()
+if args.display_config_only:
+    exit(0)
 ## ==================================================================
 
 ## Load tables  =====================================================
@@ -204,20 +98,24 @@ rt.stattable.loadObjectTable(sectionTable, symbolTable, objectTable)
 # rt.stattable.examineObjectTable(objectTable)
 
 astDumpFile = None
-if os.path.isfile(astDumpFilePath):
-    print(f'Open AST dump file {astDumpFilePath}...')
-    astDumpFile = open(astDumpFilePath, 'rb')
-else:
-    print(f'E: {astDumpFilePath} does not exist')
-    exit(1)
-localAST = pickle.load(astDumpFile)
+logFile = None
 
-# cnt = 0
-# for ast in localAST:
-#     ast.examine()
-#     cnt += 1
+if args.ast_input is not None: # AST mode
+    if os.path.isfile(astDumpFilePath):
+        print(f'Open AST dump file {astDumpFilePath}...')
+        astDumpFile = open(astDumpFilePath, 'rb')
+    else:
+        print(f'E: {astDumpFilePath} does not exist')
+        exit(1)
+    localAST = pickle.load(astDumpFile)
+    print(f'>> total {len(localAST)} regions')
+    print(f'>> file {astDumpFilePath} is closed')
+    astDumpFile.close()
 
-print(f'>> total {len(localAST)} regions')
+else: # instruction trace file mode
+    if os.path.isfile(logFilePath):
+        print(f'Open instruction trace file {logFilePath}...')
+        logFile = open(logFilePath, 'rb')
 
 ## 캐시 설계 고려사항
 # 총 캐시 크기
@@ -558,6 +456,89 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
             lowerAddress[sec] = 0
             upperAddress[sec] = 0
     examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+
+def perSectionCacheTestWithFile(logFile, total_size, block_size, n_ways, replace_policy):
+    heapCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    stackCache = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    #dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
+    #dataCache  = CacheMem(totalSize=256 * 1024, blockSize=4096, nways=64, replacePolicy=replace_policy)
+    
+    dTotalSize = 128 * 1024
+    dBlockSize = block_size
+    dNways     = int(dTotalSize / dBlockSize)
+    dataCache  = CacheMem(totalSize=dTotalSize, blockSize=dBlockSize, nways=dNways, replacePolicy=replace_policy)
+
+    heapLowerAddress = 0
+    heapUpperAddress = 0
+    stackLowerAddress = 0
+    stackUpperAddress = 0
+
+    lowerAddress = { '.data': 0, '.rodata': 0, '.sdata': 0, '.bss': 0, '.stack': 0, '.heap': 0 }
+    upperAddress = { '.data': 0, '.rodata': 0, '.sdata': 0, '.bss': 0, '.stack': 0, '.heap': 0 }
+    
+    print('[heap]', end=' ')
+    heapCache.examineCacheInfo()
+    print('[stack]', end=' ')
+    stackCache.examineCacheInfo()
+    print('[data]', end=' ')
+    dataCache.examineCacheInfo()
+
+    for ast in localAST:
+        if args.verbose:
+            printSepline(label=ast.name)
+
+        hSST = rt.stattable.SectionStatTable(sectionTable)
+        hSST.name = ast.name
+        sSST = rt.stattable.SectionStatTable(sectionTable)
+        sSST.name = ast.name
+        dSST = rt.stattable.SectionStatTable(sectionTable)
+        dSST.name = ast.name
+
+        for k, v in ast.tbl.items():
+            for sec, addr in lowerAddress.items():
+                # print(f'v.section: {v.section}, sec: {sec}, addr: {addr:8x}, v.addr: {v.addr:8x}')
+                if v.section == sec:
+                    #print(f'v.section: {v.section}, sec: {sec}, addr: {addr:8x}, v.addr: {v.addr:8x}')
+                    if addr == 0 or addr > v.addr:
+                        lowerAddress[sec] = v.addr
+            for sec, addr in upperAddress.items():
+                if v.section == sec:
+                    if addr < v.addr:
+                        upperAddress[sec] = v.addr
+
+            if v.section == '.heap':
+                hSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
+                heapCache.lookup(v.addr)
+            elif v.section == '.stack':
+                sSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
+                stackCache.lookup(v.addr)
+            else:
+                dSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
+                onHit = dataCache.lookup(v.addr)
+                if v.section == '.rodata' and not onHit:
+                    print(f'instCtr={k}, addr={v.addr:#8x}({v.object})')
+                    
+        heapCache.localSST.append(hSST)
+        stackCache.localSST.append(sSST)
+        dataCache.localSST.append(dSST)
+
+        # if args.verbose:
+        print(f'## {ast.name} ##')
+        examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+        for sec, addr in lowerAddress.items():
+            lower = lowerAddress[sec]
+            upper = upperAddress[sec]
+            byteDiff = upper - lower
+            # 접근되지 않은 섹션은 출력 생략
+            if byteDiff == 0 and (lower == 0 or upper == 0):
+                continue
+            print(f'{sec:6}: {lower:#08x}-{upper:#08x} ({byteDiff + 1} bytes = {(byteDiff + 1) / 1024} KB)')
+
+        for sec, addr in lowerAddress.items():
+            lowerAddress[sec] = 0
+            upperAddress[sec] = 0
+    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+
 
 ## Cache simulation =================================================
 # cacheTest = CacheMem(totalSize=arg_totalSize, blockSize=arg_blockSize, nways=arg_nways, replacePolicy=arg_replacePolicy)
