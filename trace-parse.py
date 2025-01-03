@@ -147,7 +147,7 @@ print()
 
 logFile = None
 
-dumpPathName = 'dump/dump_%s.pkl' % logFileName
+dumpPathName = 'dump/dump_%s.pkl' % modelName
 dumpReadMode = False
 dumpFile = None
 
@@ -157,14 +157,14 @@ if os.path.isfile(dumpPathName) and args.enable_dump:
     dumpReadMode = True
 
 if not dumpReadMode:
-    if os.path.isfile(pathName):
+    if os.path.isfile(logFilePath):
         if args.human_readable:
-            logFile = open(pathName, 'r', encoding='utf-8')
+            logFile = open(logFilePath, 'r', encoding='utf-8')
         else:
-            logFile = open(pathName, 'rb')
-        print('File %s is opened' % pathName)
+            logFile = open(logFilePath, 'rb')
+        print('File %s is opened' % logFilePath)
     else:
-        print('E: file %s does not exist' % pathName)
+        print('E: file %s does not exist' % logFilePath)
         exit(1)
 
 # class:
@@ -261,7 +261,7 @@ if dumpReadMode:
         print('Plot data is loaded from %s successfully' % dumpPathName)
 
 else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
-    print(f'Analyze {pathName}...')
+    print(f'Analyze {logFilePath}...')
     # plotData.pcLow = getIMemBaseAddress(modelName)
     # plotData.pcHigh = getIMemBaseAddress(modelName)
     plotData.pcLow  = secEntry['.text'].vma
@@ -580,14 +580,14 @@ if args.human_readable and dumpReadMode:
 
 ## 통계 정보 출력 및 덤프 저장 ==============================================
 print()
-print('## Data ##')
-print('address (low) : %x' % plotData.dataAddrLow)
-print('address (high): %x' % plotData.dataAddrHigh)
-print('--> %d KB\n' % ((plotData.dataAddrHigh - plotData.dataAddrLow) / 1024))
-print('## Stack ##')
-print('address (low) : %x' % plotData.stackAddrLow)
-print('address (high): %x' % plotData.stackAddrHigh)
-print('--> %d KB\n' % ((plotData.stackAddrHigh - plotData.stackAddrLow) / 1024))
+# print('## Data ##')
+# print('address (low) : %x' % plotData.dataAddrLow)
+# print('address (high): %x' % plotData.dataAddrHigh)
+# print('--> %d KB\n' % ((plotData.dataAddrHigh - plotData.dataAddrLow) / 1024))
+# print('## Stack ##')
+# print('address (low) : %x' % plotData.stackAddrLow)
+# print('address (high): %x' % plotData.stackAddrHigh)
+# print('--> %d KB\n' % ((plotData.stackAddrHigh - plotData.stackAddrLow) / 1024))
 print('## PC    ##')
 print('address (low) : %x' % plotData.pcLow)
 print('address (high): %x' % plotData.pcHigh)
