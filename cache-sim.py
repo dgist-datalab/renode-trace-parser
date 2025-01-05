@@ -97,25 +97,29 @@ rt.stattable.loadObjectTable(sectionTable, symbolTable, objectTable)
 # rt.stattable.examineSymbolTable(symbolTable)
 # rt.stattable.examineObjectTable(objectTable)
 
-astDumpFile = None
+astFile = None
 logFile = None
 
-if args.ast_input is not None: # AST mode
-    if os.path.isfile(astDumpFilePath):
-        print(f'Open AST dump file {astDumpFilePath}...')
-        astDumpFile = open(astDumpFilePath, 'rb')
+startTime = time.time()
+if args.use_ast: # AST mode
+    if os.path.isfile(astFilePath):
+        print(f'Open AST dump file {astFilePath}...')
+        astFile = open(astFilePath, 'rb')
     else:
-        print(f'E: {astDumpFilePath} does not exist')
+        print(f'E: {astFilePath} does not exist')
         exit(1)
-    localAST = pickle.load(astDumpFile)
+    localAST = pickle.load(astFile)
     print(f'>> total {len(localAST)} regions')
-    print(f'>> file {astDumpFilePath} is closed')
-    astDumpFile.close()
+    astFile.close()
+    print(f'>> file {astFilePath} is closed')
 
 else: # instruction trace file mode
     if os.path.isfile(logFilePath):
         print(f'Open instruction trace file {logFilePath}...')
         logFile = open(logFilePath, 'rb')
+endTime = time.time()
+fileOpenTime = endTime - startTime
+print(f'[file open] elapsed time: {fileOpenTime:.5f} sec')
 
 ## 캐시 설계 고려사항
 # 총 캐시 크기
@@ -457,7 +461,7 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
             upperAddress[sec] = 0
     examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
 
-def perSectionCacheTestWithFile(logFile, total_size, block_size, n_ways, replace_policy):
+def perSectionCacheTestwithLogFile(logFile, localAST, total_size, block_size, n_ways, replace_policy):
     heapCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     stackCache = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     #dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
@@ -482,6 +486,48 @@ def perSectionCacheTestWithFile(logFile, total_size, block_size, n_ways, replace
     stackCache.examineCacheInfo()
     print('[data]', end=' ')
     dataCache.examineCacheInfo()
+
+    hSST = rt.stattable.SectionStatTable(sectionTable)
+    sSST = rt.stattable.SectionStatTable(sectionTable)
+    dSST = rt.stattable.SectionStatTable(sectionTable)
+
+    curRegion = 0
+    curDispatchRegion = -1
+    curHostRegion = 0
+
+    while True:
+        trace = logFile.read(DL_TRACE_SIZE_COMPACT_MEM)
+        if not trace:
+            break
+
+        ## trace로부터 데이터 추출
+        # opType: load/store/arith/unknown
+        # dataType: sint/uint/float/vector
+        # operandSize: 8/16/32/64/128
+        opType = trace[0] & 0b11
+        dataType = (trace[0] >> 2) & 0b111
+        operandSize = trace[0] >> 5
+        instCtr = int.from_bytes(trace[1:9], byteorder='little')
+        addr = int.from_bytes(trace[9:], byteorder='little')
+
+        opclass = 0
+
+        if opType == 0 or opType == 1: # load/store
+            pass
+        # 산술/벡터 명령어, custom 명령어 trace의 경우 14바이트 길이를 가지므로 1바이트를 추가로 읽는다
+        elif opType == 2 or dataType == 3 or opType == 3:
+            opclass = (logFile.read(1))[0]
+            if opType == 3: # custom instruction
+                opc = opclass & 0b11
+                funct3 = (opclass >> 2) & 0b111
+                if opc == 0: # custom-0
+                    if funct3 == 0: # dr.begin
+                        curRegion += 1
+                        curDispatchRegion += 1
+
+                    elif funct3 == 1: # dr.end
+                        curRegion += 1
+                        curHostRegion += 1
 
     for ast in localAST:
         if args.verbose:
@@ -575,8 +621,15 @@ nwaysSet     = ( 1, 2, 4, 8, 16, 32, 64, 128, 256 )
 policySet    = ( 'fifo', 'lru', 'random' )
 blockSize = arg_blockSize
 
+
 printSepline(label='Per-section cache, entire region test (single test)')
+startTime = time.time()
 perSectionCacheTest(localAST, arg_totalSize, blockSize, arg_nways, arg_replacePolicy)
+endTime = time.time()
+simTime = endTime - startTime
+print(f'[file open] elapsed time: {fileOpenTime:.5f} sec')
+print(f'[per-section cache simulation] elapsed time: {simTime:.5f} sec')
+
 exit(0)
 
 printSepline(label='Single cache, entire region test (extremely small case)')

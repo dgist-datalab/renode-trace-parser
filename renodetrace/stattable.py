@@ -16,7 +16,7 @@ class SectionTableEntry:
         self.vma = 0
         self.lma = 0
         self.fileOff = 0
-        self.aligh = 0
+        self.align = ''
     
     def examine(self):
         #print(f'idx: {self.idx}, {self.name}, size: {self.size:08x}, vma: {self.vma:08x}, lma: {self.lma:08x}, fileOff: {self.fileOff:08x}, align: {self.align}')

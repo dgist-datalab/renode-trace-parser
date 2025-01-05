@@ -278,7 +278,10 @@ def getFilePath(args):
 def getASTFileName(args):
     astFileName = ''
     if args.part is not None:
-        astFileName = f'{args.model_name}_p{args.part}_ast'
+        if args.model_name == 'mobilebert' and args.part == 1:
+            astFileName = 'mobilebert_p1_ast_0'
+        else:
+            astFileName = f'{args.model_name}_p{args.part}_ast'
     else:
         astFileName = f'{args.model_name}_ast'
     return astFileName
