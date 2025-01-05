@@ -121,6 +121,9 @@ endTime = time.time()
 fileOpenTime = endTime - startTime
 print(f'[file open] elapsed time: {fileOpenTime:.5f} sec')
 
+# logFile.close()
+# exit(0)
+
 ## 캐시 설계 고려사항
 # 총 캐시 크기
 # 캐시 블록 크기: 기본 64바이트
@@ -461,7 +464,7 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
             upperAddress[sec] = 0
     examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
 
-def perSectionCacheTestwithLogFile(logFile, localAST, total_size, block_size, n_ways, replace_policy):
+def perSectionCacheTestwithLogFile(logfp, secTbl, total_size, block_size, n_ways, replace_policy):
     heapCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     stackCache = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     #dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
@@ -477,6 +480,7 @@ def perSectionCacheTestwithLogFile(logFile, localAST, total_size, block_size, n_
     stackLowerAddress = 0
     stackUpperAddress = 0
 
+    # 각 섹션의 하위(lower) 주소와 상위(upper) 주소를 저장함
     lowerAddress = { '.data': 0, '.rodata': 0, '.sdata': 0, '.bss': 0, '.stack': 0, '.heap': 0 }
     upperAddress = { '.data': 0, '.rodata': 0, '.sdata': 0, '.bss': 0, '.stack': 0, '.heap': 0 }
     
@@ -487,18 +491,29 @@ def perSectionCacheTestwithLogFile(logFile, localAST, total_size, block_size, n_
     print('[data]', end=' ')
     dataCache.examineCacheInfo()
 
-    hSST = rt.stattable.SectionStatTable(sectionTable)
-    sSST = rt.stattable.SectionStatTable(sectionTable)
-    dSST = rt.stattable.SectionStatTable(sectionTable)
+    # per-section local SST 초기화 (매 region 시작마다 초기화)
+    stName = rt.NON_DR_STAT_TABLE_NAME + '#0'
+    hSST = rt.stattable.SectionStatTable(secTbl)
+    hSST.name = stName
+    sSST = rt.stattable.SectionStatTable(secTbl)
+    sSST.name = stName
+    dSST = rt.stattable.SectionStatTable(secTbl)
+    dSST.name = stName
 
     curRegion = 0
     curDispatchRegion = -1
     curHostRegion = 0
+    onDispatchRegion = False
+
+    traceCnt = 0
 
     while True:
-        trace = logFile.read(DL_TRACE_SIZE_COMPACT_MEM)
+        trace = logfp.read(rt.DL_TRACE_SIZE_COMPACT_MEM)
         if not trace:
             break
+
+        # if traceCnt == 100000:
+        #     exit(0)
 
         ## trace로부터 데이터 추출
         # opType: load/store/arith/unknown
@@ -512,77 +527,86 @@ def perSectionCacheTestwithLogFile(logFile, localAST, total_size, block_size, n_
 
         opclass = 0
 
-        if opType == 0 or opType == 1: # load/store
-            pass
-        # 산술/벡터 명령어, custom 명령어 trace의 경우 14바이트 길이를 가지므로 1바이트를 추가로 읽는다
-        elif opType == 2 or dataType == 3 or opType == 3:
-            opclass = (logFile.read(1))[0]
-            if opType == 3: # custom instruction
-                opc = opclass & 0b11
-                funct3 = (opclass >> 2) & 0b111
-                if opc == 0: # custom-0
-                    if funct3 == 0: # dr.begin
-                        curRegion += 1
-                        curDispatchRegion += 1
-
-                    elif funct3 == 1: # dr.end
-                        curRegion += 1
-                        curHostRegion += 1
-
-    for ast in localAST:
         if args.verbose:
-            printSepline(label=ast.name)
+            print(f'[{instCtr}] opType={opType} dataType={dataType} operandSize={operandSize} addr={addr:#x}')
 
-        hSST = rt.stattable.SectionStatTable(sectionTable)
-        hSST.name = ast.name
-        sSST = rt.stattable.SectionStatTable(sectionTable)
-        sSST.name = ast.name
-        dSST = rt.stattable.SectionStatTable(sectionTable)
-        dSST.name = ast.name
+        # 산술/벡터 명령어, custom 명령어 trace의 경우 14바이트 길이를 가지므로 1바이트를 추가로 읽는다
+        if opType == 2 or dataType == 3 or opType == 3:
+            opclass = (logfp.read(1))[0]
+        
+        ## trace 처리
+        if opType == 0 or opType == 1: # load/store
+            # addr의 섹션 계산
+            secName = rt.stattable.getSectionName(secTbl, addr)
+            # lowerAddress 업데이트
+            for losec, loaddr in lowerAddress.items():
+                if secName == losec:
+                    if loaddr == 0 or loaddr > addr:
+                        lowerAddress[losec] = addr
+            # upperAddress 업데이트
+            for upsec, upaddr in upperAddress.items():
+                if secName == upsec:
+                    if upaddr < addr:
+                        upperAddress[upsec] = addr
+            
+            if secName == '.heap':
+                hSST.putWithSectionName(secName, opType, dataType, addr)
+                heapCache.lookup(addr)
+            elif secName == '.stack':
+                sSST.putWithSectionName(secName, opType, dataType, addr)
+                stackCache.lookup(addr)
+            else: # .data+...
+                dSST.putWithSectionName(secName, opType, dataType, addr)
+                onHit = dataCache.lookup(addr)
+                # .rodata에서 캐시 미스 발생 시 로그 출력
+                # if secName == '.rodata' and not onHit:
+                #     print(f'instCtr={k}, addr={v.addr:#8x}({v.object})')
+                
+        elif opType == 3: # custom instruction
+            opc = opclass & 0b11
+            funct3 = (opclass >> 2) & 0b111
+            if opc == 0: # custom-0
+                if funct3 == 0: # dr.begin
+                    curRegion += 1
+                    curDispatchRegion += 1
+                    # region 시작지점에 새로운 per-section localSST 생성 및 초기화
+                    stName = ''
+                    if onDispatchRegion:
+                        stName = f'{rt.DR_STAT_TABLE_NAME}#{curDispatchRegion}'
+                    else:
+                        stName = f'{rt.NON_DR_STAT_TABLE_NAME}#{curHostRegion}' 
+                    hSST = rt.stattable.SectionStatTable(secTbl)
+                    hSST.name = stName
+                    sSST = rt.stattable.SectionStatTable(secTbl)
+                    sSST.name = stName
+                    dSST = rt.stattable.SectionStatTable(secTbl)
+                    dSST.name = stName
 
-        for k, v in ast.tbl.items():
-            for sec, addr in lowerAddress.items():
-                # print(f'v.section: {v.section}, sec: {sec}, addr: {addr:8x}, v.addr: {v.addr:8x}')
-                if v.section == sec:
-                    #print(f'v.section: {v.section}, sec: {sec}, addr: {addr:8x}, v.addr: {v.addr:8x}')
-                    if addr == 0 or addr > v.addr:
-                        lowerAddress[sec] = v.addr
-            for sec, addr in upperAddress.items():
-                if v.section == sec:
-                    if addr < v.addr:
-                        upperAddress[sec] = v.addr
+                elif funct3 == 1: # dr.end
+                    curRegion += 1
+                    curHostRegion += 1
+                    # region 종료지점에 per-section localSST append
+                    heapCache.localSST.append(hSST)
+                    stackCache.localSST.append(sSST)
+                    dataCache.localSST.append(dSST)
 
-            if v.section == '.heap':
-                hSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
-                heapCache.lookup(v.addr)
-            elif v.section == '.stack':
-                sSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
-                stackCache.lookup(v.addr)
-            else:
-                dSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
-                onHit = dataCache.lookup(v.addr)
-                if v.section == '.rodata' and not onHit:
-                    print(f'instCtr={k}, addr={v.addr:#8x}({v.object})')
-                    
-        heapCache.localSST.append(hSST)
-        stackCache.localSST.append(sSST)
-        dataCache.localSST.append(dSST)
+                    # if args.verbose:
+                    print(f'## {stName} ##')
+                    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+                    for sec, addr in lowerAddress.items():
+                        lower = lowerAddress[sec]
+                        upper = upperAddress[sec]
+                        byteDiff = upper - lower
+                        # 접근되지 않은 섹션은 출력 생략
+                        if byteDiff == 0 and (lower == 0 or upper == 0):
+                            continue
+                        print(f'{sec:6}: {lower:#08x}-{upper:#08x} ({byteDiff + 1} bytes = {(byteDiff + 1) / 1024} KB)')
 
-        # if args.verbose:
-        print(f'## {ast.name} ##')
-        examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
-        for sec, addr in lowerAddress.items():
-            lower = lowerAddress[sec]
-            upper = upperAddress[sec]
-            byteDiff = upper - lower
-            # 접근되지 않은 섹션은 출력 생략
-            if byteDiff == 0 and (lower == 0 or upper == 0):
-                continue
-            print(f'{sec:6}: {lower:#08x}-{upper:#08x} ({byteDiff + 1} bytes = {(byteDiff + 1) / 1024} KB)')
+                    for sec, addr in lowerAddress.items():
+                        lowerAddress[sec] = 0
+                        upperAddress[sec] = 0
+        # traceCnt += 1
 
-        for sec, addr in lowerAddress.items():
-            lowerAddress[sec] = 0
-            upperAddress[sec] = 0
     examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
 
 
@@ -624,7 +648,10 @@ blockSize = arg_blockSize
 
 printSepline(label='Per-section cache, entire region test (single test)')
 startTime = time.time()
-perSectionCacheTest(localAST, arg_totalSize, blockSize, arg_nways, arg_replacePolicy)
+if args.use_ast:
+    perSectionCacheTest(localAST, arg_totalSize, blockSize, arg_nways, arg_replacePolicy)
+else:
+    perSectionCacheTestwithLogFile(logFile, sectionTable, arg_totalSize, blockSize, arg_nways, arg_replacePolicy)
 endTime = time.time()
 simTime = endTime - startTime
 print(f'[file open] elapsed time: {fileOpenTime:.5f} sec')

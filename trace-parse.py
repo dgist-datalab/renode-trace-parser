@@ -101,9 +101,6 @@ printSepline('SymbolTable (dispatch regions only)')
 examineSymbolTable(dispatchRegionTable)
 printSepline()
 
-DR_STAT_TABLE_NAME = 'dispatch_region'
-NON_DR_STAT_TABLE_NAME = 'host'
-
 # SectionStatTables (SSTs)
 globalSST = SectionStatTable(sectionTable)
 globalSST.name = 'global'
