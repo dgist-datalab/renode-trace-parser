@@ -35,7 +35,8 @@ parser.add_argument('--part', '-p', action='store', type=int, help='Number of pa
 parser.add_argument('--sample', '-s', action='store', type=int, help='Sampling interval')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--verbose', '-v', action='store_true')
-parser.add_argument('--ast-output', '-a', action='store', help='Dump AccessSequenceTable (AST) to specified file')
+#parser.add_argument('--ast-output', '-a', action='store', help='Dump AccessSequenceTable (AST) to specified file')
+parser.add_argument('--use-ast', action='store_true')
 parser.add_argument('--env', action='store', default='desktop', help='Execution environment (default: desktop)')
 parser.add_argument('--ntraces', '-t', action='store', type=int)
 
@@ -55,6 +56,9 @@ if (not args.plot_ldst) and (not args.plot_arith):
 ## 파일명 불러오기
 modelName = args.model_name
 logFilePath, headerFilePath, readelfFilePath = getFilePath(args)
+astFilePath = getASTFilePath(args)
+
+partNum = getPartNum(args)
 
 ## Display configuration ============================================
 printSepline('Configuration summary')
@@ -64,10 +68,13 @@ printSepline('Configuration summary')
 # print(f'model config: {modelConfig}')
 # print(f'memConfig: "{memConfig}"')
 # print(f'function call trace file path: {funcTraceFilePath}')
+print(f'Model name: {modelName}')
+print(f'- part (optional): {partNum}')
 print(f'Environment: {args.env}')
 print(f'Instruction trace file path: {logFilePath}')
 print(f'Headers file path: {headerFilePath}')
 print(f'ReadELF file path: {readelfFilePath}')
+print(f'AST file path: {astFilePath}')
 printSepline()
 
 if args.display_config_only:
@@ -99,9 +106,9 @@ loadSectionTable(headerFilePath, sectionTable)
 loadSymbolTable(readelfFilePath, symbolTable)
 createDispatchRegionTable(symbolTable, dispatchRegionTable) # 심볼 테이블로부터 dispatch region에 해당하는 엔트리만 추출하여 새로운 테이블 'dispatchRegionTable'을 생성한다
 loadObjectTable(sectionTable, symbolTable, objectTable)
-examineSectionTable(sectionTable)
-examineSymbolTable(symbolTable)
-examineObjectTable(objectTable)
+# examineSectionTable(sectionTable)
+# examineSymbolTable(symbolTable)
+# examineObjectTable(objectTable)
 
 printSepline('SymbolTable (dispatch regions only)')
 examineSymbolTable(dispatchRegionTable)
@@ -517,7 +524,8 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     #     localOST[curDispatchRegion].put(objectTable, opType, dataType, addr)
                     localSST[curRegion].put(sectionTable, opType, dataType, addr)
                     localOST[curRegion].put(objectTable, opType, dataType, addr)
-                    localAST[curRegion].put(sectionTable, objectTable, instCtr, addr, opType, dataType, operandSize)
+                    if args.use_ast:
+                        localAST[curRegion].put(sectionTable, objectTable, instCtr, addr, opType, dataType, operandSize)
 
                 ## Disable InstStatTable (IST)...
                 #     if opType == 0: # load
@@ -538,6 +546,19 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         else:
                             #stName = NON_DR_STAT_TABLE_NAME + ('#%d' % curRegion)
                             stName = NON_DR_STAT_TABLE_NAME + ('#%d' % curHostRegion)
+
+                        # dr.begin/dr.end가 선두에 오는 경우 처리
+                        if traceCnt == 0:
+                            curRegion -= 1
+                            localSST[curRegion].name = stName
+                            localOST[curRegion].name = stName
+                            if args.use_ast:
+                                localAST[curRegion].name = stName
+                            if sampleInterval > 1:
+                                sampleCnt -= 1
+                            traceCnt += 1
+                            continue
+
                         sst = SectionStatTable(sectionTable)
                         sst.name = stName
                         localSST.append(sst)
@@ -546,9 +567,10 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         ost.name = stName
                         localOST.append(ost)
 
-                        ast = AccessSequenceTable()
-                        ast.name = stName
-                        localAST.append(ast)
+                        if args.use_ast:
+                            ast = AccessSequenceTable()
+                            ast.name = stName
+                            localAST.append(ast)
 
                         ## Disable IST...
                         # istEntry = InstStatTableEntry()
@@ -610,11 +632,10 @@ print('--> %d KB\n' % ((plotData.pcHigh - plotData.pcLow) / 1024))
 # exit(0)
 
 # 캐시 시뮬레이터용: 생성된 AST를 파일로 덤프한다
-if args.ast_output is not None:
-    astDumpFileName = 'dump/' + args.ast_output + '.ast'
-    astDumpFile = open(astDumpFileName, 'wb')
+if args.use_ast:
+    astDumpFile = open(astFilePath, 'wb')
     pickle.dump(localAST, astDumpFile)
-    print(f'ASTs are saved to {astDumpFileName}')
+    print(f'ASTs are saved to {astFilePath}')
     astDumpFile.close()
 
 # 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장
@@ -669,7 +690,7 @@ if args.enable_stat_table:
     # printSepline()
     # print()
     
-    if args.verbose:
+    if args.verbose and args.use_ast:
         print('## AccessSequenceTables ##')
         printSepline('Local ASTs')
         for i, ast in enumerate(localAST):
@@ -679,12 +700,13 @@ if args.enable_stat_table:
         print()
 
     # 각 localAST의 시작 명령어의 instCnt 출력
-    print('## AccessSequenceTables (instruction counter only) ##')
-    printSepline('Local ASTs')
-    for i, ast in enumerate(localAST):
-        print(f'{ast.name}: {ast.getFirstInstructionCounter()}')
-    printSepline()
-    print()
+    if args.use_ast:
+        print('## AccessSequenceTables (instruction counter only) ##')
+        printSepline('Local ASTs')
+        for i, ast in enumerate(localAST):
+            print(f'{ast.name}: {ast.getFirstInstructionCounter()}')
+        printSepline()
+        print()
 
 ## function call trace ==============================================
 # print('## FunctionStatTables ##')

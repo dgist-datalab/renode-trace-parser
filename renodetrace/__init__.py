@@ -296,3 +296,9 @@ def getASTFilePath(args):
     astFileName = getASTFileName(args)
     astFilePath = f'dump/{astFileName}.ast'
     return astFilePath
+
+def getPartNum(args):
+    if args.part is None:
+        return -1
+    else:
+        args.part
