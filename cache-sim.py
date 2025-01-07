@@ -25,6 +25,7 @@ parser.add_argument('--display-config-only', action='store_true')
 parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('--use-ast', action='store_true')
 parser.add_argument('--human-readable', action='store_true', help='Read from human-readable trace')
+parser.add_argument('--skip-bytes', '-k', action='store', type=int)
 
 parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Specify the target model name (default={modelName})')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify the batch size (default={batchSize})')
@@ -117,6 +118,8 @@ else: # instruction trace file mode
     if os.path.isfile(logFilePath):
         print(f'Open instruction trace file {logFilePath}...')
         logFile = open(logFilePath, 'rb')
+        if args.skip_bytes is not None:
+            logFile.seek(args.skip_bytes)
 endTime = time.time()
 fileOpenTime = endTime - startTime
 print(f'[file open] elapsed time: {fileOpenTime:.5f} sec')
@@ -184,6 +187,12 @@ class CacheMem:
         rows = len(self.mem)
         if args.verbose:
             print(f'--> Cache memory has successfully constructed: total {rows}x{cols} cache blocks')
+
+    def printConfig(self):
+        print(f'total size: {self.totalSize} bytes ({self.nblocks} blocks, {self.nsets} sets)')
+        print(f'block size: {self.blockSize} bytes')
+        print(f'ways: {self.nways}')
+        print(f'replace policy: {self.replacePolicy}')
     
     def resetAccessStat(self):
         self.naccess = 0
@@ -340,7 +349,7 @@ class CacheMem:
             nstores += sst.getTotalStores()
         return nstores
             
-def examineCachesAccessInfo(**caches):
+def examineCachesAccessStat(**caches):
     naccess = 0
     nhit = 0
     nmiss = 0
@@ -440,7 +449,7 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
             else:
                 dSST.putWithSectionName(v.section, v.opType, v.dataType, v.addr)
                 onHit = dataCache.lookup(v.addr)
-                if v.section == '.rodata' and not onHit:
+                if args.verbose and v.section == '.rodata' and not onHit:
                     print(f'instCtr={k}, addr={v.addr:#8x}({v.object})')
                     
         heapCache.localSST.append(hSST)
@@ -449,7 +458,7 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
 
         # if args.verbose:
         print(f'## {ast.name} ##')
-        examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+        examineCachesAccessStat(heap=heapCache, stack=stackCache, data=dataCache)
         for sec, addr in lowerAddress.items():
             lower = lowerAddress[sec]
             upper = upperAddress[sec]
@@ -462,7 +471,7 @@ def perSectionCacheTest(localAST, total_size, block_size, n_ways, replace_policy
         for sec, addr in lowerAddress.items():
             lowerAddress[sec] = 0
             upperAddress[sec] = 0
-    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+    examineCachesAccessStat(heap=heapCache, stack=stackCache, data=dataCache)
 
 def perSectionCacheTestwithLogFile(logfp, secTbl, total_size, block_size, n_ways, replace_policy):
     heapCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
@@ -470,7 +479,8 @@ def perSectionCacheTestwithLogFile(logfp, secTbl, total_size, block_size, n_ways
     #dataCache  = CacheMem(totalSize=total_size, blockSize=block_size, nways=n_ways, replacePolicy=replace_policy)
     #dataCache  = CacheMem(totalSize=256 * 1024, blockSize=4096, nways=64, replacePolicy=replace_policy)
     
-    dTotalSize = 128 * 1024
+    # data cache는 4배 사이즈 부여
+    dTotalSize = total_size * 4
     dBlockSize = block_size
     dNways     = int(dTotalSize / dBlockSize)
     dataCache  = CacheMem(totalSize=dTotalSize, blockSize=dBlockSize, nways=dNways, replacePolicy=replace_policy)
@@ -561,38 +571,43 @@ def perSectionCacheTestwithLogFile(logfp, secTbl, total_size, block_size, n_ways
                 # .rodata에서 캐시 미스 발생 시 로그 출력
                 # if secName == '.rodata' and not onHit:
                 #     print(f'instCtr={k}, addr={v.addr:#8x}({v.object})')
-                
+        
+        # mobilebert:
+        # part 0: DR#0-DR#653, DR#654의 dr.begin 포함
+        # part 1: DR#654-DR#1211, DR#1212의 dr.begin 포함
         elif opType == 3: # custom instruction
+            print(f'>> curRegion: {curRegion}')
             opc = opclass & 0b11
             funct3 = (opclass >> 2) & 0b111
             if opc == 0: # custom-0
                 if funct3 == 0: # dr.begin
+                    if args.verbose:
+                        print('>> dr.begin')
                     curRegion += 1
                     curDispatchRegion += 1
-                    # region 시작지점에 새로운 per-section localSST 생성 및 초기화
-                    stName = ''
-                    if onDispatchRegion:
-                        stName = f'{rt.DR_STAT_TABLE_NAME}#{curDispatchRegion}'
-                    else:
-                        stName = f'{rt.NON_DR_STAT_TABLE_NAME}#{curHostRegion}' 
-                    hSST = rt.stattable.SectionStatTable(secTbl)
-                    hSST.name = stName
-                    sSST = rt.stattable.SectionStatTable(secTbl)
-                    sSST.name = stName
-                    dSST = rt.stattable.SectionStatTable(secTbl)
-                    dSST.name = stName
-
+                    onDispatchRegion = True
                 elif funct3 == 1: # dr.end
+                    if args.verbose:
+                        print('>> dr.end')
                     curRegion += 1
                     curHostRegion += 1
-                    # region 종료지점에 per-section localSST append
+                    onDispatchRegion = False
+
+                # 새로운 region의 시작 시 또는 현재 region의 종료 시 실행
+                if funct3 == 0 or funct3 == 1:
+                    if traceCnt == 0:
+                        curRegion -= 1
+                        stName = f'{rt.DR_STAT_TABLE_NAME}#{curDispatchRegion}'
+                        traceCnt += 1
+                        continue
+                    # 현재 per-section localSST를 각 캐시에 append
                     heapCache.localSST.append(hSST)
                     stackCache.localSST.append(sSST)
                     dataCache.localSST.append(dSST)
-
-                    # if args.verbose:
+                    
+                    # 정보 출력
                     print(f'## {stName} ##')
-                    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+                    examineCachesAccessStat(heap=heapCache, stack=stackCache, data=dataCache)
                     for sec, addr in lowerAddress.items():
                         lower = lowerAddress[sec]
                         upper = upperAddress[sec]
@@ -602,12 +617,26 @@ def perSectionCacheTestwithLogFile(logfp, secTbl, total_size, block_size, n_ways
                             continue
                         print(f'{sec:6}: {lower:#08x}-{upper:#08x} ({byteDiff + 1} bytes = {(byteDiff + 1) / 1024} KB)')
 
+                    # lowerAddress, upperAddress 초기화
                     for sec, addr in lowerAddress.items():
                         lowerAddress[sec] = 0
                         upperAddress[sec] = 0
-        # traceCnt += 1
+                    
+                    # 새로운 region을 위한 per-section localSST 생성 및 초기화
+                    if onDispatchRegion:
+                        stName = f'{rt.DR_STAT_TABLE_NAME}#{curDispatchRegion}'
+                    else:
+                        stName = f'{rt.NON_DR_STAT_TABLE_NAME}#{curHostRegion}'
+                    hSST = rt.stattable.SectionStatTable(secTbl)
+                    hSST.name = stName
+                    sSST = rt.stattable.SectionStatTable(secTbl)
+                    sSST.name = stName
+                    dSST = rt.stattable.SectionStatTable(secTbl)
+                    dSST.name = stName
+                    
+        traceCnt += 1
 
-    examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+    examineCachesAccessStat(heap=heapCache, stack=stackCache, data=dataCache)
 
 
 ## Cache simulation =================================================
@@ -719,7 +748,7 @@ printSepline()
 #             stackCache.lookup(v.addr)
 #         else:
 #             dataCache.lookup(v.addr)
-#     examineCachesAccessInfo(heap=heapCache, stack=stackCache, data=dataCache)
+#     examineCachesAccessStat(heap=heapCache, stack=stackCache, data=dataCache)
 # printSepline()
 # print()
 

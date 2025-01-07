@@ -32,11 +32,12 @@ parser.add_argument('--enable-stat-table', action='store_true', default=False, h
 #parser.add_argument('--enable-dispatch-region-table', action='store_true')
 parser.add_argument('--model-name', '-m', action='store', default=modelName, help=f'Target model name (default={modelName})')
 parser.add_argument('--part', '-p', action='store', type=int, help='Number of partitioned trace (for large trace)')
-parser.add_argument('--sample', '-s', action='store', help='Sampling interval')
+parser.add_argument('--sample', '-s', action='store', type=int, help='Sampling interval')
 parser.add_argument('--batch-size', action='store', type=int, default=batchSize, help=f'Specify batch size (default={batchSize})')
 parser.add_argument('--verbose', '-v', action='store_true')
 parser.add_argument('--ast-output', '-a', action='store', help='Dump AccessSequenceTable (AST) to specified file')
 parser.add_argument('--env', action='store', default='desktop', help='Execution environment (default: desktop)')
+parser.add_argument('--ntraces', '-t', action='store', type=int)
 
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 #parser.add_argument('--without-custom', action='store_true')
@@ -45,6 +46,11 @@ parser.add_argument('--enable-dump', action='store_true', help='Enable dump save
 parser.add_argument('--cumulative', action='store_true', help='CDF mode')
 #parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 args = parser.parse_args()
+
+# 옵션을 명시하지 않을 경우 둘 다 참으로 처리 (기본값)
+if (not args.plot_ldst) and (not args.plot_arith):
+    args.plot_ldst = True
+    args.plot_arith = True
 
 ## 파일명 불러오기
 modelName = args.model_name
@@ -241,12 +247,17 @@ lastInstCtr = 0
 
 sampleInterval = -1
 if args.sample is not None:
-    sampleInterval = int(args.sample)
+    sampleInterval = args.sample
     if sampleInterval <= 1:
         print('Warning: sampleInterval <= 1; sampling mode is disabled')
         sampleInterval = -1
 sampleCnt = 0
 nsamples = 0
+
+targetNTrace = 0
+if args.ntraces is not None:
+    targetNTrace = args.ntraces
+traceCnt = 0
 
 if dumpReadMode:
     plotData = pickle.load(dumpFile)
@@ -382,6 +393,8 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                     plotData.totalInstCnt = int(line.split(sep=':')[1].strip())
     else: # binary trace mode
         while True:
+            if targetNTrace != 0 and traceCnt == targetNTrace:
+                break
             trace = logFile.read(DL_TRACE_SIZE_COMPACT_MEM)
             if not trace:
                 break
@@ -399,14 +412,15 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             opclass = 0
 
             if args.verbose:
-                sys.stdout.write('\r' + '[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
+                #sys.stdout.write('\r' + '[%d] opType=%d dataType=%d operandSize=%d addr=%#x ' % (instCtr, opType, dataType, operandSize, addr))
+                print('[%d] opType=%d dataType=%d operandSize=%d addr=%#x opclass=%d' % (instCtr, opType, dataType, operandSize, addr, opclass))
             
             # 산술 명령어 trace의 경우 14바이트 길이를 가지므로 1바이트를 추가로 읽는다
             # vector/custom instruction도 부가정보인 opclass를 포함
             if opType == 2 or dataType == 3 or opType == 3:
                 opclass = (logFile.read(1))[0]
-                if args.verbose:
-                    sys.stdout.write('opclass: %#x' % opclass)
+                # if args.verbose:
+                #     sys.stdout.write('opclass: %#x' % opclass)
 
             # --disable-plot 옵션 사용 시 plotData update 비활성화
             if not args.disable_plot and ((sampleInterval < 1) or (sampleInterval > 1 and sampleCnt == 0)):
@@ -471,6 +485,7 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 plotData.customX.append(instCtr)
                 plotData.customY.append(addr)
                 plotData.customOpclass.append(opclass)
+                
                 opc = opclass & 0b11
                 funct3 = (opclass >> 2) & 0b111
                 #print('[%d] custom-%d opclass=%02x funct3=%x pc=%#x ' % (instCtr, opc, opclass, funct3, addr))
@@ -558,6 +573,7 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
 
             if sampleInterval > 1:
                 sampleCnt -= 1
+            traceCnt += 1
 
         lastInstCtr = instCtr
         plotData.totalInstCnt = lastInstCtr + 100
@@ -570,7 +586,8 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
     logFile.close()
     print('Trace analyzing has been completed')
     print(f'[Trace Analysis] elapsed time: {traceProcessTime:.5f} sec')
-    
+    plotData.displayLength()
+
 if args.human_readable and dumpReadMode:
     print()
     print(plotData.epilogue)
@@ -691,11 +708,6 @@ if args.disable_plot:
 
 print('Plotting graphs...')
 startTime = time.time()
-
-# 옵션을 명시하지 않을 경우 둘 다 참으로 처리 (기본값)
-if (not args.plot_ldst) and (not args.plot_arith):
-    args.plot_ldst = True
-    args.plot_arith = True
 
 if args.cumulative:
     plotCumul()

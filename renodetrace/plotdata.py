@@ -70,6 +70,29 @@ class DLPlotData:
         print("Data (high):  0x%x" % self.dataAddrHigh)
         print("Stack (low):  0x%x" % self.stackAddrLow)
         print("Stack (high): 0x%x" % self.stackAddrHigh)
+
+    def displayLength(self):
+        print('## PlotData length ##')
+        print(f'loadX: {len(self.loadX)}')
+        print(f'loadY: {len(self.loadY)}')
+        print(f'storeX: {len(self.storeX)}')
+        print(f'storeY: {len(self.storeY)}')
+        print(f'fploadX: {len(self.fploadX)}')
+        print(f'fploadY: {len(self.fploadY)}')
+        print(f'fpstoreX: {len(self.fpstoreX)}')
+        print(f'fpstoreY: {len(self.fpstoreY)}')
+        print(f'vloadX: {len(self.vloadX)}')
+        print(f'vloadY: {len(self.vloadY)}')
+        print(f'vstoreX: {len(self.vstoreX)}')
+        print(f'vstoreY: {len(self.vstoreY)}')
+        print(f'arithX: {len(self.arithX)}')
+        print(f'arithY: {len(self.arithY)}')
+        print(f'fparithX: {len(self.fparithX)}')
+        print(f'fparithY: {len(self.fparithY)}')
+        print(f'varithX: {len(self.varithX)}')
+        print(f'varithY: {len(self.varithY)}')
+        print(f'customX: {len(self.customX)}')
+        print(f'customY: {len(self.customY)}')
     
     # def loadDump(self, dfile):
     # 	if dfile is None:
