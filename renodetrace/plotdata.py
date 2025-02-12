@@ -93,6 +93,8 @@ class DLPlotData:
         print(f'varithY: {len(self.varithY)}')
         print(f'customX: {len(self.customX)}')
         print(f'customY: {len(self.customY)}')
+        print(f'customOpclass: {len(self.customOpclass)}')
+        print(f'totalInstCnt(=lastInstCtr+100): {self.totalInstCnt}')
     
     # def loadDump(self, dfile):
     # 	if dfile is None:
@@ -343,33 +345,74 @@ def plotArithSep(modelName, plotData, typeWise=False):
     axs4.scatter(np.array(plotData.varithX), np.array(plotData.varithY), color=plotColor['varith'], s=1)
     axs4.set_title('Vector arithmetic only')
 
-sampleInterval = 1000
-def plotCumul():
-    fig1, axs1 = plt.subplots(num=1)
-    x = np.arange(len(plotData.loadCDF[::sampleInterval]))
+# sampleInterval = 1000
+# def plotCumul():
+#     fig1, axs1 = plt.subplots(num=1)
+#     x = np.arange(len(plotData.loadCDF[::sampleInterval]))
 
-    sampledLoadCDF = plotData.loadCDF[::sampleInterval]
-    sampledStoreCDF = plotData.storeCDF[::sampleInterval]
-    sampledArithCDF = plotData.arithCDF[::sampleInterval]
+#     sampledLoadCDF = plotData.loadCDF[::sampleInterval]
+#     sampledStoreCDF = plotData.storeCDF[::sampleInterval]
+#     sampledArithCDF = plotData.arithCDF[::sampleInterval]
 
-    '''
-    loadCDF  = axs1.bar(x, plotData.loadCDF, color=plotColor['load'])
-    storeCDF = axs1.bar(x, plotData.storeCDF, bottom=plotData.loadCDF, color=plotColor['store'])
-    arithCDF = axs1.bar(x, plotData.arithCDF, bottom=np.array(plotData.loadCDF) + np.array(plotData.storeCDF), color=plotColor['varith'])
-    '''
+#     '''
+#     loadCDF  = axs1.bar(x, plotData.loadCDF, color=plotColor['load'])
+#     storeCDF = axs1.bar(x, plotData.storeCDF, bottom=plotData.loadCDF, color=plotColor['store'])
+#     arithCDF = axs1.bar(x, plotData.arithCDF, bottom=np.array(plotData.loadCDF) + np.array(plotData.storeCDF), color=plotColor['varith'])
+#     '''
     
-    loadCDF  = axs1.bar(x, sampledLoadCDF, color=plotColor['load'])
-    storeCDF = axs1.bar(x, sampledStoreCDF, bottom=sampledLoadCDF, color=plotColor['store'])
-    arithCDF = axs1.bar(x, sampledArithCDF, bottom=np.array(sampledLoadCDF) + np.array(sampledStoreCDF), color=plotColor['varith'])
+#     loadCDF  = axs1.bar(x, sampledLoadCDF, color=plotColor['load'])
+#     storeCDF = axs1.bar(x, sampledStoreCDF, bottom=sampledLoadCDF, color=plotColor['store'])
+#     arithCDF = axs1.bar(x, sampledArithCDF, bottom=np.array(sampledLoadCDF) + np.array(sampledStoreCDF), color=plotColor['varith'])
 
-    #xticks = x * sampleInterval
-    #axs1.set_xticks(x)
-    #axs1.set_xticklabels(xticks)
-    #axs1.tick_params(axis='x', rotation=90)
+#     #xticks = x * sampleInterval
+#     #axs1.set_xticks(x)
+#     #axs1.set_xticklabels(xticks)
+#     #axs1.tick_params(axis='x', rotation=90)
 
-    # axs1.xaxis.set_major_locator(ticker.MultipleLocator(10000))
-    axs1.xaxis.set_major_formatter(ticker.FuncFormatter(to_sampled))
-    axs1.tick_params(axis='x', rotation=90)
+#     # axs1.xaxis.set_major_locator(ticker.MultipleLocator(10000))
+#     axs1.xaxis.set_major_formatter(ticker.FuncFormatter(to_sampled))
+#     axs1.tick_params(axis='x', rotation=90)
 
-    axs1.yaxis.set_major_locator(ticker.MultipleLocator(1000000))
-    axs1.yaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
+#     axs1.yaxis.set_major_locator(ticker.MultipleLocator(1000000))
+#     axs1.yaxis.set_major_formatter(ticker.FormatStrFormatter('%d'))
+
+# 각 key(loadX 등)에 대하여 슬라이스할 인덱스들의 리스트가 저장된 딕셔너리 형태로 구축
+def createSliceTable(pdata, stab):
+    for pname in pdata.files:
+        if 'loadX' in pname or 'storeX' in pname:
+            stab[pname] = []
+            print(f'{pname}...', end=' ')
+            createSliceTableEntry(pdata, pname, stab)
+            print(f'has been processed! --> length: {len(stab[pname])}')
+    # for idx, instCtr in enumerate(pdata['customX']):
+    #     print(f"instCtr: {instCtr}, opclass: {pdata['customOpclass'][idx]}")
+
+def createSliceTableEntry(pdata, pname, stab):
+    # stab[pname].append([1, 2, 3])
+    # stab[pname].append([4, 5, 6])
+    idxBegin = 0
+    idxEnd = 0
+    for idx, instCtr in enumerate(pdata['customX']):
+        print(f'{idx}: {instCtr}')
+        # opclass = pdata['customOpclass'][idx]
+        # opc = opclass & 0b11
+        # funct3 = (opclass >> 2) & 0b111
+        # print(f'opclass={opclass}')
+        # if opc == 0:
+        #     if funct3 == 0 or funct3 == 1: # dr.begin or dr.end
+        #         print(f'len(plotData[{pname}])={len(pdata[pname])}')
+        #         sidx = getRegionSliceIdx(pdata[pname], instCtr, idxBegin)
+        #         print(f'sidx={sidx}')
+        #         idxEnd = sidx - 1
+        #         stab[pname].append([idxBegin, idxEnd])
+        #         idxBegin = sidx # 다음 region의 시작 지점
+
+        #stab[pname].append(...)
+
+def getRegionSliceIdx(pvec, boundInstCnt, startfrom=0):
+    startfrom = 0
+    for i in range(len(pvec) - startfrom):
+        if pvec[i + startfrom] > boundInstCnt:
+            print(f'boundInstCnt: {boundInstCnt}, pvec[{i}]: {pvec[i]}')
+            return i
+    return -1

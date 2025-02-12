@@ -1,3 +1,5 @@
+import os.path
+
 DR_STAT_TABLE_NAME = 'dispatch_region'
 NON_DR_STAT_TABLE_NAME = 'host'
 
@@ -302,3 +304,45 @@ def getPartNum(args):
         return -1
     else:
         args.part
+
+def getNumpyDumpFilePath(args):
+    modelName = args.model_name
+    if args.env == 'desktop':
+        npDumpFileBase = '/home/euntae/projects/cpp-trace-parser/dump'
+    elif args.env == 'server':
+        npDumpFileBase = '/home/euntae/projects/cpp-trace-parser/dump'
+    
+    if modelName == 'mobilebert':
+        if args.part is not None:
+            modelName += f'_p{args.part}'
+    
+    if args.plot_ldst and not args.plot_arith:
+        modelName += f'_ldst'
+    if args.plot_arith and not args.plot_ldst:
+        modelName += f'_arith'
+
+    if args.sample is not None:
+        modelName +=  f'_sample{args.sample}'
+    
+    npDumpFilePath = f'{npDumpFileBase}/{modelName}.npz'
+
+    if not os.path.isfile(npDumpFilePath):
+        npDumpFilePath = getNumpyDumpFilePathWithoutPartial(args)
+    return npDumpFilePath
+
+def getNumpyDumpFilePathWithoutPartial(args):
+    modelName = args.model_name
+    if args.env == 'desktop':
+        npDumpFileBase = '/home/euntae/projects/cpp-trace-parser/dump'
+    elif args.env == 'server':
+        npDumpFileBase = '/home/euntae/projects/cpp-trace-parser/dump'
+    
+    if modelName == 'mobilebert':
+        if args.part is not None:
+            modelName += f'_p{args.part}'
+
+    if args.sample is not None:
+        modelName +=  f'_sample{args.sample}'
+    
+    npDumpFilePath = f'{npDumpFileBase}/{modelName}.npz'
+    return npDumpFilePath

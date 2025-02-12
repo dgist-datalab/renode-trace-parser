@@ -43,8 +43,8 @@ parser.add_argument('--ntraces', '-t', action='store', type=int)
 #parser.add_argument('--model-config', action='store', default=modelConfig, help=f'Specify FC triple model configuration: small, medium, large, xl, xxl (default={modelConfig})')
 #parser.add_argument('--without-custom', action='store_true')
 parser.add_argument('--all', action='store_true', help='Enable all options')
-parser.add_argument('--enable-dump', action='store_true', help='Enable dump save/load')
-parser.add_argument('--cumulative', action='store_true', help='CDF mode')
+parser.add_argument('--use-dump', action='store_true', help='Read plot data from .npz dump file')
+parser.add_argument('--dump-file-path', action='store', help='원하는 덤프 파일의 경로를 지정함')
 #parser.add_argument('--save-figure', action='store_true', help='Save figures as image files')
 args = parser.parse_args()
 
@@ -62,12 +62,6 @@ partNum = getPartNum(args)
 
 ## Display configuration ============================================
 printSepline('Configuration summary')
-# print(f'matplotlib backend: {matplotlib.get_backend()}')
-# print(f'model name: {modelName}')
-# print(f'part number: {partNum}')
-# print(f'model config: {modelConfig}')
-# print(f'memConfig: "{memConfig}"')
-# print(f'function call trace file path: {funcTraceFilePath}')
 print(f'Model name: {modelName}')
 print(f'- part (optional): {partNum}')
 print(f'Environment: {args.env}')
@@ -80,19 +74,6 @@ printSepline()
 if args.display_config_only:
     exit(0)
 ## ==================================================================
-
-
-# TODO:
-# Add Human-readable MNIST and MobileNet traces
-# Add --file-name or -f option to specify input file name
-# Add --disable-dump-read option
-# Add sampling
-# Add elapsed time for graph plotting
-# Add --model-name option to configure specific ML model
-# Add 'Section Table'
-# Section Table도 dump file로 save/load 가능하도록
-# Add --enable-section-stat option
-
 
 ## Load tables  =====================================================
 sectionTable = []
@@ -113,6 +94,7 @@ loadObjectTable(sectionTable, symbolTable, objectTable)
 printSepline('SymbolTable (dispatch regions only)')
 examineSymbolTable(dispatchRegionTable)
 printSepline()
+print()
 
 # SectionStatTables (SSTs)
 globalSST = SectionStatTable(sectionTable)
@@ -145,65 +127,44 @@ curHostRegion = 0           # dispatch region 바깥 영역의 인덱스; 프로
 curDispatchRegion = -1      # 현재 dispatch region의 인덱스; 첫 DR 진입 시 0번으로 시작한다
 onDispatchRegion = False
 
-print()
-
-## Open the trace log or dump file ==================================
-#logFileName = 'ecg_small_20240624_142406'		# stack=200K (default)
-#logFileName = 'ecg_small_20240705_140632'		# stack=100K
-#logFileName = 'ecg_small_20240705_142117'		# stack=10M
-# logFileName = 'ecg_small_20240705_143322'		# another stack=200K
-#logFileName = 'mobile_net_v1_20240703_142550'
-#logFileName = 'mnist_20240703_142344'
-
 logFile = None
+## Numpy 덤프 파일 사용 시 파싱 단계 생략 =================================
+# dumpPathName = 'dump/dump_%s.pkl' % modelName
+# dumpReadMode = False
+# dumpFile = None
+if args.use_dump: # npz 파일을 불러옴
+    if args.dump_file_path is not None:
+        npDumpFilePath = args.dump_file_path
+    else:
+        npDumpFilePath = getNumpyDumpFilePath(args)
+    if os.path.isfile(npDumpFilePath):
+        print(f'## Numpy dump file: read from {npDumpFilePath}...')
+    else:
+        print(f'E: file {npDumpFilePath} does not exist')
+        exit(1)
+    plotFileData = np.load(npDumpFilePath)
+    print(f'--> {plotFileData.files}\n')
+    # print(type(plotData))
+    # print(f"plotData['loadX']:")
+    # print(f" type: {type(plotData['loadX'])}, shape: {plotData['loadX'].shape}")
+    #print(f"plotData['customX'](len={len(plotData['customX'])}): {plotData['customX']}")
+    #print(f"plotData['customOpclass'](len={len(plotData['customOpclass'])}): {plotData['customOpclass']}")
 
-dumpPathName = 'dump/dump_%s.pkl' % modelName
-dumpReadMode = False
-dumpFile = None
+    #sliceTable = {}
+    #createSliceTable(plotData, sliceTable)
+    #print(sliceTable)
+    #exit(0)
 
-if os.path.isfile(dumpPathName) and args.enable_dump:
-    print('Dump file %s is detected' % dumpPathName)
-    dumpFile = open(dumpPathName, 'rb')
-    dumpReadMode = True
-
-if not dumpReadMode:
+else: # instruction trace 파일을 불러옴
     if os.path.isfile(logFilePath):
         if args.human_readable:
             logFile = open(logFilePath, 'r', encoding='utf-8')
         else:
             logFile = open(logFilePath, 'rb')
-        print('File %s is opened' % logFilePath)
+        print(f'File {logFilePath} is opened')
     else:
-        print('E: file %s does not exist' % logFilePath)
+        print(f'E: file {logFilePath} does not exist')
         exit(1)
-
-# class:
-# (1) load/store
-# [11581] lw(=2003)/742: pc=3201ae48, addr=340327f4
-# [11589] sw(=2023)/805: pc=3201ae84, addr=34fffbd0
-
-# (2) FP load/store
-# [2992325] flw(=2007)/1: pc=32009404, addr=34031f70
-# [2992358] fsw(=2027)/1: pc=32009438, addr=34064dc0
-
-# (3) vector load/store
-# [3122315] vle32(=0007)/147: pc=32020c44, addr=34ffc900
-# [3122318] vse32(=0027)/160: pc=32020c50, addr=34ffc8f0
-
-# (4) arith
-# [103] arith(=0033)/3: pc=320329f8
-
-# (5) arith imm
-# [93] arithimm(=0013)/37: pc=320000cc
-
-# (6) FP arith
-# [2992339] fparith(=20000053)/3: pc=32009460
-
-# (7) fm{add, sub}, fnm{add, sub}
-# [3433716] fmadd.s(=0043)/3: pc=3200990c
-
-# (8) varithi{vv, vx, vi}, varithm{vv, vx}, varith{vv, vf}
-# [4931914] varithi.vi(=3057)/43: pc=32021510
 
 ## Initialize plot data =============================================
 imemAddrBase = getIMemBaseAddress(modelName)
@@ -266,22 +227,79 @@ if args.ntraces is not None:
     targetNTrace = args.ntraces
 traceCnt = 0
 
-if dumpReadMode:
-    plotData = pickle.load(dumpFile)
-    plotData.displayBoundary()
-    if plotData.totalInstCnt == 0:
-        print('E: failed to load plot data')
-        exit(1)
-    else:
-        print('Plot data is loaded from %s successfully' % dumpPathName)
+plotData.pcLow  = secEntry['.text'].vma
+plotData.pcHigh = secEntry['.text'].vma + secEntry['.text'].size
+traceProcessTime = 0
 
-else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
+if args.use_dump:
+    if modelName == 'mobilebert':
+        print(plotFileData['loadX'])
+    if args.plot_ldst:
+        plotData.loadX = plotFileData['loadX']
+        plotData.loadY = plotFileData['loadY']
+        plotData.fploadX = plotFileData['fploadX']
+        plotData.fploadY = plotFileData['fploadY']
+        plotData.vloadX = plotFileData['vloadX']
+        plotData.vloadY = plotFileData['vloadY']
+
+        plotData.storeX = plotFileData['storeX']
+        plotData.storeY = plotFileData['storeY']
+        plotData.fpstoreX = plotFileData['fpstoreX']
+        plotData.fpstoreY = plotFileData['fpstoreY']
+        plotData.vstoreX = plotFileData['vstoreX']
+        plotData.vstoreY = plotFileData['vstoreY']
+        
+    if args.plot_arith:
+        plotData.arithX = plotFileData['arithX']
+        plotData.arithY = plotFileData['arithY']
+        plotData.fparithX = plotFileData['fparithX']
+        plotData.fparithY = plotFileData['fparithY']
+        plotData.varithX = plotFileData['varithX']
+        plotData.varithY = plotFileData['varithY']
+
+    plotData.customX = plotFileData['customX']
+    plotData.customY = plotFileData['customY']
+    plotData.customOpclass = plotFileData['customOpclass']
+
+    plotData.totalInstCnt = plotFileData['lastInstCtr'][0] + 100
+
+    plotData.displayLength()
+
+## Trace 파싱
+if not args.use_dump:
     print(f'Analyze {logFilePath}...')
     # plotData.pcLow = getIMemBaseAddress(modelName)
     # plotData.pcHigh = getIMemBaseAddress(modelName)
-    plotData.pcLow  = secEntry['.text'].vma
-    plotData.pcHigh = secEntry['.text'].vma + secEntry['.text'].size
     startTime = time.time()
+    
+    ## Human-readable format trace processing =======================
+    # class:
+    # (1) load/store
+    # [11581] lw(=2003)/742: pc=3201ae48, addr=340327f4
+    # [11589] sw(=2023)/805: pc=3201ae84, addr=34fffbd0
+
+    # (2) FP load/store
+    # [2992325] flw(=2007)/1: pc=32009404, addr=34031f70
+    # [2992358] fsw(=2027)/1: pc=32009438, addr=34064dc0
+
+    # (3) vector load/store
+    # [3122315] vle32(=0007)/147: pc=32020c44, addr=34ffc900
+    # [3122318] vse32(=0027)/160: pc=32020c50, addr=34ffc8f0
+
+    # (4) arith
+    # [103] arith(=0033)/3: pc=320329f8
+
+    # (5) arith imm
+    # [93] arithimm(=0013)/37: pc=320000cc
+
+    # (6) FP arith
+    # [2992339] fparith(=20000053)/3: pc=32009460
+
+    # (7) fm{add, sub}, fnm{add, sub}
+    # [3433716] fmadd.s(=0043)/3: pc=3200990c
+
+    # (8) varithi{vv, vx, vi}, varithm{vv, vx}, varith{vv, vf}
+    # [4931914] varithi.vi(=3057)/43: pc=32021510
     if args.human_readable:
         # 패턴 매칭: 숫자 | 16진수 숫자 | pc=숫자 | addr=숫자
         pattern = re.compile(r'\b\d+\b|\b[0-9a-fA-F]+\b|\bpc=[0-9a-fA-F]+\b|\baddr=[0-9a-fA-F]+\b')
@@ -292,16 +310,6 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
             if epilogue is not None:
                 epilogue = line
                 break
-            
-            ## Update cumulative graph ======================================================
-            # loadCntTotal = loadCnt + fploadCnt + vloadCnt
-            # storeCntTotal = storeCnt + fpstoreCnt + vstoreCnt
-            # memCntTotal = loadCntTotal + storeCntTotal
-            # arithCntTotal = arithCnt + fparithCnt + varithCnt
-            # plotData.loadCDF.append(loadCntTotal)
-            # plotData.storeCDF.append(storeCntTotal)
-            # plotData.arithCDF.append(arithCntTotal)
-            #================================================================================
 
             matches = pattern.findall(line)
             matchLen = len(matches)
@@ -398,7 +406,10 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                 plotData.epilogue += line
                 if "Total instructions" in line:
                     plotData.totalInstCnt = int(line.split(sep=':')[1].strip())
-    else: # binary trace mode
+    # End of human-readable trace processing ========================
+
+    # binary trace mode =============================================
+    else:
         while True:
             if targetNTrace != 0 and traceCnt == targetNTrace:
                 break
@@ -505,7 +516,7 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
                         print(f'Dispatch region #{curDispatchRegion} begin: instCtr={instCtr}, file pointer={logFile.tell()}, name={curDispatchRegionName} at {addr:#8x}')
                         onDispatchRegion = True
 
-                    elif funct3 == 1: #dr.end
+                    elif funct3 == 1: # dr.end
                         curRegion += 1
                         curHostRegion += 1
                         print(f'Dispatch region #{curDispatchRegion} end: instCtr={instCtr}, file pointer={logFile.tell()}, name={curDispatchRegionName} at {addr:#8x}')
@@ -610,9 +621,10 @@ else: # 덤프 파일이 감지되지 않는 경우 trace 파일을 분석함
     print(f'[Trace Analysis] elapsed time: {traceProcessTime:.5f} sec')
     plotData.displayLength()
 
-if args.human_readable and dumpReadMode:
-    print()
-    print(plotData.epilogue)
+# Deprecated
+# if args.human_readable and args.use_dump:
+#     print()
+#     print(plotData.epilogue)
 
 ## 통계 정보 출력 및 덤프 저장 ==============================================
 print()
@@ -629,8 +641,6 @@ print('address (low) : %x' % plotData.pcLow)
 print('address (high): %x' % plotData.pcHigh)
 print('--> %d KB\n' % ((plotData.pcHigh - plotData.pcLow) / 1024))
 
-# exit(0)
-
 # 캐시 시뮬레이터용: 생성된 AST를 파일로 덤프한다
 if args.use_ast:
     astDumpFile = open(astFilePath, 'wb')
@@ -638,24 +648,11 @@ if args.use_ast:
     print(f'ASTs are saved to {astFilePath}')
     astDumpFile.close()
 
-# 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장
-if not dumpReadMode and args.enable_dump:
-    dumpFile = open(dumpPathName, 'wb')
-    plotData.saveDump(dumpFile)
-    print('Plot data saved in %s' % dumpPathName)
-
-if args.cumulative:
-    print()
-    print("## Cumulative mode statistics ##")
-    print('loadCntTotal: %d' % loadCntTotal)
-    print('storeCntTotal: %d' % storeCntTotal)
-    print('arithCntTotal: %d' % arithCntTotal)
-    print('len(loadCDF): %d' % len(plotData.loadCDF))
-    print('len(fploadCDF): %d' % len(plotData.fploadCDF))
-    print('len(vloadCDF): %d' % len(plotData.vloadCDF))
-    print('len(storeCDF): %d' % len(plotData.storeCDF))
-    print('len(arithCDF): %d' % len(plotData.storeCDF))
-    print('len(plotData.instCtr): %d' % len(plotData.instCtr))
+# 덤프 파일이 존재하지 않는 경우 생성된 플롯 데이터 저장 (Deprecated)
+# if not dumpReadMode and args.enable_dump:
+#     dumpFile = open(dumpPathName, 'wb')
+#     plotData.saveDump(dumpFile)
+#     print('Plot data saved in %s' % dumpPathName)
 
 ## enable-section-stat 옵션이 활성화되어 있는 경우 관련 통계 데이터 출력 =====
 if args.enable_stat_table:
@@ -731,46 +728,26 @@ if args.disable_plot:
 print('Plotting graphs...')
 startTime = time.time()
 
-if args.cumulative:
-    plotCumul()
-else:
-    ## load/store 명령어
-    if args.plot_ldst:
-        if args.separate:
-            plotLdstSep(modelName, sectionTable, plotData, args.plot_type_wise)
+## load/store 명령어
+if args.plot_ldst:
+    if args.separate:
+        plotLdstSep(modelName, sectionTable, plotData, args.plot_type_wise)
 
-        else:
-            plotLdst(modelName, sectionTable, plotData)
-            
+    else:
+        plotLdst(modelName, sectionTable, plotData)
+        
 
-    ## 새로운 창: 산술 연산 명령어
-    if args.plot_arith:
-        if args.separate:
-            plotArithSep(modelName, plotData, args.plot_type_wise)
-        else:
-            plotArith(modelName, plotData)
+## 새로운 창: 산술 연산 명령어
+if args.plot_arith:
+    if args.separate:
+        plotArithSep(modelName, plotData, args.plot_type_wise)
+    else:
+        plotArith(modelName, plotData)
 
 # 전체 레이아웃 조정
 #fig1.tight_layout()
 #fig2.tight_layout()
 
-# 서브 플롯들을 파일로 저장 ====================================================
-# if args.save_figure or args.all:
-# 	figFilePrefix = 'figure/'
-# 	figFileSuffix = '.png'
-# 	for i, ax in enumerate(axs1.flat):
-# 		figFileName = figFilePrefix + logFileName + '_ldst_' + str(i) + figFileSuffix
-# 		extent = ax.get_window_extent().transformed(fig1.dpi_scale_trans.inverted())
-# 		fig1.savefig(figFileName, bbox_inches=extent, dpi=100)
-
-# 	for i, ax in enumerate(axs2.flat):
-# 		figFileName = figFilePrefix + logFileName + '_arith_' + str(i) + figFileSuffix
-# 		extent = ax.get_window_extent().transformed(fig2.dpi_scale_trans.inverted())
-# 		fig2.savefig(figFileName, bbox_inches=extent, dpi=100)
-
-#plt.tight_layout()
-
-# plt.close()
 endTime = time.time()
 plotTime = endTime - startTime
 print(f'Total {nsamples} samples are processed')
